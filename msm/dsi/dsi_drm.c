@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -15,6 +15,10 @@
 #include "sde_dbg.h"
 #include "msm_drv.h"
 #include "sde_encoder.h"
+
+#include "mi_disp_print.h"
+#include "mi_dsi_display.h"
+#include "mi_panel_id.h"
 
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
@@ -181,6 +185,7 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+	struct dsi_display *display;
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
@@ -192,7 +197,10 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
-	atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
+	display = c_bridge->display;
+
+	if (bridge->encoder->crtc->state->active_changed)
+		atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
 
 	/* By this point mode should have been validated through mode_fixup */
 	rc = dsi_display_set_mode(c_bridge->display,
@@ -233,6 +241,8 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	if (rc)
 		DSI_ERR("Continuous splash pipeline cleanup failed, rc=%d\n",
 									rc);
+	sde_connector_update_panel_dead(display->drm_conn, !display->panel->panel_initialized);
+
 }
 
 static void dsi_bridge_enable(struct drm_bridge *bridge)
@@ -270,6 +280,12 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 				true);
 		}
 	}
+
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, true);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display enable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
@@ -287,6 +303,12 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 
 	if (display)
 		display->enabled = false;
+
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, false);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display disable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
 
 	if (display && display->drm_conn) {
 		conn_state = to_sde_connector_state(display->drm_conn->state);
@@ -446,6 +468,14 @@ static bool _dsi_bridge_mode_validate_and_fixup(struct drm_bridge *bridge,
 			adj_mode->timing.refresh_rate,
 			adj_mode->pixel_clk_khz,
 			adj_mode->panel_mode_caps);
+	}
+
+	if (!dsi_display_mode_match(&cur_dsi_mode, adj_mode,
+			DSI_MODE_MATCH_ACTIVE_TIMINGS) &&
+			(adj_mode->dsi_mode_flags & DSI_MODE_FLAG_DYN_CLK)) {
+		adj_mode->dsi_mode_flags &= ~DSI_MODE_FLAG_DYN_CLK;
+		DSI_ERR("DMS and dyn clk not supported in same commit\n");
+		return false;
 	}
 
 	return rc;
@@ -621,7 +651,7 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 
 	convert_to_dsi_mode(drm_mode, &partial_dsi_mode);
 	rc = dsi_display_find_mode(dsi_display, &partial_dsi_mode, sub_mode, &dsi_mode);
-	if (rc || !dsi_mode->priv_info)
+	if (rc || !dsi_mode->priv_info || !dsi_display || !dsi_display->panel)
 		return -EINVAL;
 
 	memset(mode_info, 0, sizeof(*mode_info));
@@ -641,12 +671,12 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 	mode_info->qsync_min_fps = dsi_mode->timing.qsync_min_fps;
 	mode_info->wd_jitter = dsi_mode->priv_info->wd_jitter;
 
-	if (dsi_display->panel)
-		mode_info->vpadding = dsi_display->panel->host_config.vpadding;
+	mode_info->vpadding = dsi_display->panel->host_config.vpadding;
 	if (mode_info->vpadding < drm_mode->vdisplay) {
 		mode_info->vpadding = 0;
 		dsi_display->panel->host_config.line_insertion_enable = 0;
 	}
+
 	memcpy(&mode_info->topology, &dsi_mode->priv_info->topology,
 			sizeof(struct msm_display_topology));
 
@@ -1245,14 +1275,15 @@ enum drm_mode_status dsi_conn_mode_valid(struct drm_connector *connector,
 
 int dsi_conn_pre_kickoff(struct drm_connector *connector,
 		void *display,
-		struct msm_display_kickoff_params *params)
+		struct msm_display_kickoff_params *params,
+		bool force_update_dsi_clocks)
 {
 	if (!connector || !display || !params) {
 		DSI_ERR("Invalid params\n");
 		return -EINVAL;
 	}
 
-	return dsi_display_pre_kickoff(connector, display, params);
+	return dsi_display_pre_kickoff(connector, display, params, force_update_dsi_clocks);
 }
 
 int dsi_conn_prepare_commit(void *display,
@@ -1392,7 +1423,8 @@ struct dsi_bridge *dsi_drm_bridge_init(struct dsi_display *display,
 	bridge->base.funcs = &dsi_bridge_ops;
 	bridge->base.encoder = encoder;
 
-	rc = drm_bridge_attach(encoder, &bridge->base, NULL, 0);
+	rc = drm_bridge_attach(encoder, &bridge->base, NULL,
+				DRM_BRIDGE_ATTACH_NO_CONNECTOR);
 	if (rc) {
 		DSI_ERR("failed to attach bridge, rc=%d\n", rc);
 		goto error_free_bridge;

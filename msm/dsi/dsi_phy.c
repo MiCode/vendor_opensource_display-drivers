@@ -311,7 +311,7 @@ static int dsi_phy_settings_init(struct platform_device *pdev,
 	rc = dsi_phy_parse_dt_per_lane_cfgs(pdev, lane,
 					    "qcom,platform-lane-config");
 	if (rc) {
-		DSI_PHY_ERR(phy, "failed to parse lane cfgs, rc=%d\n", rc);
+		DSI_PHY_ERR(phy, "failed to parse platform lane config, rc=%d\n", rc);
 		goto err;
 	}
 
@@ -319,7 +319,7 @@ static int dsi_phy_settings_init(struct platform_device *pdev,
 	rc = dsi_phy_parse_dt_per_lane_cfgs(pdev, strength,
 					    "qcom,platform-strength-ctrl");
 	if (rc) {
-		DSI_PHY_ERR(phy, "failed to parse lane cfgs, rc=%d\n", rc);
+		DSI_PHY_ERR(phy, "failed to parse platform strength ctrl, rc=%d\n", rc);
 		goto err;
 	}
 
@@ -328,7 +328,7 @@ static int dsi_phy_settings_init(struct platform_device *pdev,
 		rc = dsi_phy_parse_dt_per_lane_cfgs(pdev, regs,
 					    "qcom,platform-regulator-settings");
 		if (rc) {
-			DSI_PHY_ERR(phy, "failed to parse lane cfgs, rc=%d\n",
+			DSI_PHY_ERR(phy, "failed to parse platform regulator settings, rc=%d\n",
 					rc);
 			goto err;
 		}
@@ -1025,6 +1025,8 @@ int dsi_phy_enable(struct msm_dsi_phy *phy,
 	phy->dst_format = config->common_config.dst_format;
 	phy->cfg.pll_source = pll_source;
 	phy->cfg.bit_clk_rate_hz = config->bit_clk_rate_hz;
+	phy->cfg.clk_strength = config->common_config.clk_strength;
+	phy->cfg.deemph_eq_strength = config->common_config.deemph_eq_strength;
 
 	/**
 	 * If PHY timing parameters are not present in panel dtsi file,
@@ -1167,11 +1169,8 @@ int dsi_phy_idle_ctrl(struct msm_dsi_phy *phy, bool enable)
 	} else {
 		phy->dsi_phy_state = DSI_PHY_ENGINE_OFF;
 
-		if (phy->hw.ops.disable)
-			phy->hw.ops.disable(&phy->hw, &phy->cfg);
-
 		if (phy->hw.ops.phy_idle_off)
-			phy->hw.ops.phy_idle_off(&phy->hw);
+			phy->hw.ops.phy_idle_off(&phy->hw, &phy->cfg);
 	}
 	mutex_unlock(&phy->phy_lock);
 

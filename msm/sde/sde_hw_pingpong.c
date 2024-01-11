@@ -247,16 +247,13 @@ static int sde_hw_pp_poll_timeout_wr_ptr(struct sde_hw_pingpong *pp,
 {
 	struct sde_hw_blk_reg_map *c;
 	u32 val;
-	int rc;
 
 	if (!pp)
 		return -EINVAL;
 
 	c = &pp->hw;
-	rc = readl_poll_timeout(c->base_off + c->blk_off + PP_LINE_COUNT,
-			val, (val & 0xffff) >= 1, 10, timeout_us);
-
-	return rc;
+	return read_poll_timeout(sde_reg_read, val, (val & 0xffff) >= 1,
+					10, false, timeout_us, c, PP_LINE_COUNT);
 }
 
 static void sde_hw_pp_dsc_enable(struct sde_hw_pingpong *pp)
@@ -518,6 +515,7 @@ struct sde_hw_blk_reg_map *sde_hw_pingpong_init(enum sde_pingpong idx,
 
 	c->idx = idx;
 	c->caps = cfg;
+	c->dcwb_idx = cfg->dcwb_id;
 	if (test_bit(SDE_PINGPONG_MERGE_3D, &cfg->features)) {
 		c->merge_3d = _sde_pp_merge_3d_init(cfg->merge_3d_id, addr, m);
 			if (IS_ERR(c->merge_3d)) {

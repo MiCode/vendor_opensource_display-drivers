@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -11,6 +11,7 @@
 #include "sde_formats.h"
 #include "dsi_display.h"
 #include "sde_trace.h"
+#include "mi_sde_encoder.h"
 
 #define SDE_DEBUG_VIDENC(e, fmt, ...) SDE_DEBUG("enc%d intf%d " fmt, \
 		(e) && (e)->base.parent ? \
@@ -491,6 +492,7 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 	int new_cnt = -1, old_cnt = -1;
 	u32 event = 0;
 	int pend_ret_fence_cnt = 0;
+	u32 fence_ready = -1;
 
 	if (!phys_enc)
 		return;
@@ -498,6 +500,8 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 	hw_ctl = phys_enc->hw_ctl;
 	if (!hw_ctl)
 		return;
+
+	mi_sde_encoder_save_vsync_info(phys_enc);
 
 	SDE_ATRACE_BEGIN("vblank_irq");
 
@@ -510,7 +514,7 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 
 	old_cnt = atomic_read(&phys_enc->pending_kickoff_cnt);
 
-	if (hw_ctl && hw_ctl->ops.get_flush_register)
+	if (hw_ctl->ops.get_flush_register)
 		flush_register = hw_ctl->ops.get_flush_register(hw_ctl);
 
 	if (flush_register)
@@ -528,7 +532,7 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 	}
 
 not_flushed:
-	if (hw_ctl && hw_ctl->ops.get_reset)
+	if (hw_ctl->ops.get_reset)
 		reset_status = hw_ctl->ops.get_reset(hw_ctl);
 
 	spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
@@ -545,12 +549,16 @@ not_flushed:
 		phys_enc->hw_intf->ops.get_status(phys_enc->hw_intf,
 			&intf_status);
 
+	if (flush_register && hw_ctl->ops.get_hw_fence_status)
+		fence_ready = hw_ctl->ops.get_hw_fence_status(hw_ctl);
+
 	SDE_EVT32_IRQ(DRMID(phys_enc->parent), phys_enc->hw_intf->idx - INTF_0,
 			old_cnt, atomic_read(&phys_enc->pending_kickoff_cnt),
 			reset_status ? SDE_EVTLOG_ERROR : 0,
 			flush_register, event,
 			atomic_read(&phys_enc->pending_retire_fence_cnt),
-			intf_status.frame_count, intf_status.line_count);
+			intf_status.frame_count, intf_status.line_count,
+			fence_ready);
 
 	/* Signal any waiting atomic commit thread */
 	wake_up_all(&phys_enc->pending_kickoff_wq);
@@ -602,6 +610,9 @@ static void sde_encoder_phys_vid_cont_splash_mode_set(
 	phys_enc->enable_state = SDE_ENC_ENABLED;
 
 	_sde_encoder_phys_vid_setup_irq_hw_idx(phys_enc);
+
+	phys_enc->kickoff_timeout_ms =
+		sde_encoder_helper_get_kickoff_timeout_ms(phys_enc->parent);
 }
 
 static void sde_encoder_phys_vid_mode_set(
@@ -883,17 +894,21 @@ static int _sde_encoder_phys_vid_wait_for_vblank(
 		struct sde_encoder_phys *phys_enc, bool notify)
 {
 	struct sde_encoder_wait_info wait_info = {0};
-	int ret = 0;
+	int ret = 0, new_cnt;
 	u32 event = SDE_ENCODER_FRAME_EVENT_ERROR |
 		SDE_ENCODER_FRAME_EVENT_SIGNAL_RELEASE_FENCE |
 		SDE_ENCODER_FRAME_EVENT_SIGNAL_RETIRE_FENCE;
 	struct drm_connector *conn;
+	struct sde_hw_ctl *hw_ctl;
+	u32 flush_register = 0xebad;
+	bool timeout = false;
 
-	if (!phys_enc) {
+	if (!phys_enc || !phys_enc->hw_ctl) {
 		pr_err("invalid encoder\n");
 		return -EINVAL;
 	}
 
+	hw_ctl = phys_enc->hw_ctl;
 	conn = phys_enc->connector;
 
 	wait_info.wq = &phys_enc->pending_kickoff_wq;
@@ -904,20 +919,48 @@ static int _sde_encoder_phys_vid_wait_for_vblank(
 	ret = sde_encoder_helper_wait_for_irq(phys_enc, INTR_IDX_VSYNC,
 			&wait_info);
 
-	if (notify && (ret == -ETIMEDOUT) &&
-	    atomic_add_unless(&phys_enc->pending_retire_fence_cnt, -1, 0) &&
-	    phys_enc->parent_ops.handle_frame_done) {
-		phys_enc->parent_ops.handle_frame_done(
-			phys_enc->parent, phys_enc, event);
+	/*
+	 * if hwfencing enabled, try again to wait for up to the extended timeout time in
+	 * increments as long as fence has not been signaled.
+	 */
+	if (ret == -ETIMEDOUT && phys_enc->sde_kms->catalog->hw_fence_rev)
+		ret = sde_encoder_helper_hw_fence_extended_wait(phys_enc, phys_enc->hw_ctl,
+			&wait_info, INTR_IDX_VSYNC);
 
-		if (sde_encoder_recovery_events_enabled(phys_enc->parent))
-			sde_connector_event_notify(conn,
-				DRM_EVENT_SDE_HW_RECOVERY,
+	if (ret == -ETIMEDOUT) {
+		new_cnt = atomic_add_unless(&phys_enc->pending_kickoff_cnt, -1, 0);
+		timeout = true;
+
+		/*
+		 * Reset ret when flush register is consumed. This handles a race condition between
+		 * irq wait timeout handler reading the register status and the actual IRQ handler
+		 */
+		if (hw_ctl->ops.get_flush_register)
+			flush_register = hw_ctl->ops.get_flush_register(hw_ctl);
+		if (!flush_register)
+			ret = 0;
+
+		/* if we timeout after the extended wait, reset mixers and do sw override */
+		if (ret && phys_enc->sde_kms->catalog->hw_fence_rev)
+			sde_encoder_helper_hw_fence_sw_override(phys_enc, hw_ctl);
+
+		SDE_EVT32(DRMID(phys_enc->parent), new_cnt, flush_register, ret,
+				SDE_EVTLOG_FUNC_CASE1);
+	}
+
+	if (notify && timeout && atomic_add_unless(&phys_enc->pending_retire_fence_cnt, -1, 0)
+			&& phys_enc->parent_ops.handle_frame_done) {
+		phys_enc->parent_ops.handle_frame_done(phys_enc->parent, phys_enc, event);
+
+		/* notify only on actual timeout cases */
+		if ((ret == -ETIMEDOUT) && sde_encoder_recovery_events_enabled(phys_enc->parent))
+			sde_connector_event_notify(conn, DRM_EVENT_SDE_HW_RECOVERY,
 				sizeof(uint8_t), SDE_RECOVERY_HARD_RESET);
 	}
 
-	SDE_EVT32(DRMID(phys_enc->parent), event, notify, ret,
-			ret ? SDE_EVTLOG_FATAL : 0);
+	SDE_EVT32(DRMID(phys_enc->parent), event, notify, timeout, ret,
+			ret ? SDE_EVTLOG_FATAL : 0, SDE_EVTLOG_FUNC_EXIT);
+
 	return ret;
 }
 
@@ -925,6 +968,20 @@ static int sde_encoder_phys_vid_wait_for_vblank(
 		struct sde_encoder_phys *phys_enc)
 {
 	return _sde_encoder_phys_vid_wait_for_vblank(phys_enc, true);
+}
+
+static void sde_encoder_phys_vid_update_txq(struct sde_encoder_phys *phys_enc)
+{
+	struct sde_encoder_virt *sde_enc;
+
+	if (!phys_enc)
+		return;
+
+	sde_enc = to_sde_encoder_virt(phys_enc->parent);
+	if (!sde_enc)
+		return;
+
+	sde_encoder_helper_update_out_fence_txq(sde_enc, true);
 }
 
 static int sde_encoder_phys_vid_wait_for_commit_done(
@@ -935,6 +992,9 @@ static int sde_encoder_phys_vid_wait_for_commit_done(
 	rc =  _sde_encoder_phys_vid_wait_for_vblank(phys_enc, true);
 	if (rc)
 		sde_encoder_helper_phys_reset(phys_enc);
+
+	/* Update TxQ for the incoming frame */
+	sde_encoder_phys_vid_update_txq(phys_enc);
 
 	return rc;
 }
@@ -1141,8 +1201,9 @@ static int sde_encoder_phys_vid_poll_for_active_region(struct sde_encoder_phys *
 	vid_enc = to_sde_encoder_phys_vid(phys_enc);
 	timing = &vid_enc->timing_params;
 
-	/* if programmable fetch is not enabled return early */
-	if (!programmable_fetch_get_num_lines(vid_enc, timing))
+	/* if programmable fetch is not enabled return early or if it is not a DSI interface*/
+	if (!programmable_fetch_get_num_lines(vid_enc, timing) ||
+			phys_enc->hw_intf->cap->type != INTF_DSI)
 		return 0;
 
 	poll_time_us = DIV_ROUND_UP(1000000, timing->vrefresh) / MAX_POLL_CNT;

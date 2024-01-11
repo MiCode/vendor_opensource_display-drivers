@@ -1126,7 +1126,7 @@ static void dp_ctrl_mst_calculate_rg(struct dp_ctrl_private *ctrl,
 
 	lclk = drm_dp_bw_code_to_link_rate(ctrl->link->link_params.bw_code);
 	if (panel->pinfo.comp_info.enabled)
-		bpp = DSC_BPP(panel->pinfo.comp_info.dsc_info.config);
+		bpp = panel->pinfo.comp_info.tgt_bpp;
 
 	/* min_slot_cnt */
 	numerator = pclk * bpp * 64 * 1000;
@@ -1237,15 +1237,24 @@ static void dp_ctrl_mst_stream_setup(struct dp_ctrl_private *ctrl,
 			lanes, bw_code, x_int, y_frac_enum);
 }
 
-static void dp_ctrl_dsc_setup(struct dp_ctrl_private *ctrl)
+static void dp_ctrl_dsc_setup(struct dp_ctrl_private *ctrl, struct dp_panel *panel)
 {
 	int rlen;
 	u32 dsc_enable;
+	struct dp_panel_info *pinfo = &panel->pinfo;
 
 	if (!ctrl->fec_mode)
 		return;
 
-	dsc_enable = ctrl->dsc_mode ? 1 : 0;
+	/* Set DP_DSC_ENABLE DPCD register if compression is enabled for SST monitor.
+	 * Set DP_DSC_ENABLE DPCD register if compression is enabled for
+	 * atleast 1 of the MST monitor.
+	 */
+	dsc_enable = (pinfo->comp_info.enabled == true) ? 1 : 0;
+
+	if (ctrl->mst_mode && (panel->stream_id == DP_STREAM_1) && !dsc_enable)
+		return;
+
 	rlen = drm_dp_dpcd_writeb(ctrl->aux->drm_aux, DP_DSC_ENABLE,
 			dsc_enable);
 	if (rlen < 1)
@@ -1298,7 +1307,8 @@ static int dp_ctrl_stream_on(struct dp_ctrl *dp_ctrl, struct dp_panel *panel)
 
 	/* wait for link training completion before fec config as per spec */
 	dp_ctrl_fec_setup(ctrl);
-	dp_ctrl_dsc_setup(ctrl);
+	dp_ctrl_dsc_setup(ctrl, panel);
+	panel->sink_crc_enable(panel, true);
 
 	return rc;
 }
@@ -1506,6 +1516,30 @@ void dp_ctrl_set_sim_mode(struct dp_ctrl *dp_ctrl, bool en)
 	DP_INFO("sim_mode=%d\n", ctrl->sim_mode);
 }
 
+int dp_ctrl_setup_misr(struct dp_ctrl *dp_ctrl)
+{
+	struct dp_ctrl_private *ctrl;
+
+	if (!dp_ctrl)
+		return -EINVAL;
+
+	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
+
+	return ctrl->catalog->setup_misr(ctrl->catalog);
+}
+
+int dp_ctrl_read_misr(struct dp_ctrl *dp_ctrl, struct dp_misr40_data *data)
+{
+	struct dp_ctrl_private *ctrl;
+
+	if (!dp_ctrl)
+		return -EINVAL;
+
+	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
+
+	return ctrl->catalog->read_misr(ctrl->catalog, data);
+}
+
 struct dp_ctrl *dp_ctrl_get(struct dp_ctrl_in *in)
 {
 	int rc = 0;
@@ -1556,6 +1590,8 @@ struct dp_ctrl *dp_ctrl_get(struct dp_ctrl_in *in)
 	dp_ctrl->stream_pre_off = dp_ctrl_stream_pre_off;
 	dp_ctrl->set_mst_channel_info = dp_ctrl_set_mst_channel_info;
 	dp_ctrl->set_sim_mode = dp_ctrl_set_sim_mode;
+	dp_ctrl->setup_misr = dp_ctrl_setup_misr;
+	dp_ctrl->read_misr = dp_ctrl_read_misr;
 
 	return dp_ctrl;
 error:

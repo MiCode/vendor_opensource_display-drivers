@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -186,6 +186,9 @@ enum sde_enc_rc_states {
  *				encoder due to autorefresh concurrency.
  * @ctl_done_supported          boolean flag to indicate the availability of
  *                              ctl done irq support for the hardware
+ * @vsync_event_wq              Queue to wait for the vsync event complete
+ * @fps_switch_high_to_low:	boolean to note direction of fps switch
+ * @update_clocks_on_complete_commit:	boolean to force update clocks
  */
 struct sde_encoder_virt {
 	struct drm_encoder base;
@@ -222,7 +225,7 @@ struct sde_encoder_virt {
 	struct sde_rsc_client *rsc_client;
 	bool rsc_state_init;
 	struct msm_display_info disp_info;
-	bool misr_enable;
+	atomic_t misr_enable;
 	bool misr_reconfigure;
 	u32 misr_frame_count;
 
@@ -254,6 +257,9 @@ struct sde_encoder_virt {
 	bool delay_kickoff;
 	bool autorefresh_solver_disable;
 	bool ctl_done_supported;
+	wait_queue_head_t vsync_event_wq;
+	bool fps_switch_high_to_low;
+	bool update_clocks_on_complete_commit;
 };
 
 #define to_sde_encoder_virt(x) container_of(x, struct sde_encoder_virt, base)
@@ -315,10 +321,12 @@ int sde_encoder_poll_line_counts(struct drm_encoder *encoder);
  *	Delayed: Block until next trigger can be issued.
  * @encoder:	encoder pointer
  * @params:	kickoff time parameters
+ * @old_crtc_state:	old crtc state pointer
  * @Returns:	Zero on success, last detected error otherwise
  */
 int sde_encoder_prepare_for_kickoff(struct drm_encoder *encoder,
-		struct sde_encoder_kickoff_params *params);
+		struct sde_encoder_kickoff_params *params,
+		struct drm_crtc_state *old_crtc_state);
 
 /**
  * sde_encoder_trigger_kickoff_pending - Clear the flush bits from previous
@@ -362,6 +370,16 @@ int sde_encoder_wait_for_event(struct drm_encoder *drm_encoder,
  * Returns: 0 on success, errorcode otherwise
  */
 int sde_encoder_idle_request(struct drm_encoder *drm_enc);
+
+
+/**
+ * sde_encoder_update_complete_commit - when there is DMS FPS switch in old_crtc_state,
+ *					decrease DSI clocks as per low fps.
+ * @drm_enc: encoder pointer
+ * @old_state: old drm_crtc_state pointer
+ */
+void sde_encoder_update_complete_commit(struct drm_encoder *drm_enc,
+		struct drm_crtc_state *old_state);
 
 /*
  * sde_encoder_get_fps - get interface frame rate of the given encoder
@@ -607,6 +625,13 @@ bool sde_encoder_needs_dsc_disable(struct drm_encoder *drm_enc);
 void sde_encoder_get_transfer_time(struct drm_encoder *drm_enc,
 		u32 *transfer_time_us);
 
+/**
+ * sde_encoder_helper_update_out_fence_txq - updates hw-fence tx queue
+ * @sde_enc: Pointer to sde encoder structure
+ * @is_vid: Boolean to indicate if is video-mode
+ */
+void sde_encoder_helper_update_out_fence_txq(struct sde_encoder_virt *sde_enc, bool is_vid);
+
 /*
  * sde_encoder_get_dfps_maxfps - get dynamic FPS max frame rate of
 				the given encoder
@@ -645,6 +670,13 @@ ktime_t sde_encoder_calc_last_vsync_timestamp(struct drm_encoder *drm_enc);
  * @drm_enc:    Pointer to drm encoder structure
  */
 void sde_encoder_cancel_delayed_work(struct drm_encoder *encoder);
+
+/**
+ * sde_encoder_set_cwb_pending - set cwb_disable_pending flag
+ * @drm_enc: Pointer to drm encoder structure
+ * @enable:	set or reset cwb_disable_pending
+ */
+void sde_encoder_set_cwb_pending(struct drm_encoder *drm_enc, bool enable);
 
 /**
  * sde_encoder_get_kms - retrieve the kms from encoder
@@ -691,5 +723,53 @@ static inline bool sde_encoder_is_widebus_enabled(struct drm_encoder *drm_enc)
  */
 bool sde_encoder_is_line_insertion_supported(struct drm_encoder *drm_enc);
 
+/**
+ * sde_encoder_get_hw_ctl - gets hw ctl from the connector
+ * @c_conn: sde connector
+ * @Return: pointer to the hw ctl from the encoder upon success, otherwise null
+ */
+struct sde_hw_ctl *sde_encoder_get_hw_ctl(struct sde_connector *c_conn);
+
+/**
+ * sde_crtc_has_fps_switch_to_low_set - return fps_switch_high_to_low in sde enc
+ * @crtc:	Pointer to drm crtc structure
+ * @Return:	true if there is fps_switch from high_to_low
+ */
+bool sde_crtc_has_fps_switch_to_low_set(struct drm_crtc *crtc);
+
 void sde_encoder_add_data_to_minidump_va(struct drm_encoder *drm_enc);
+
+/**
+ * sde_encoder_misr_sign_event_notify - collect MISR, check with previous value
+ * if change then notify to client with custom event
+ * @drm_enc: pointer to drm encoder
+ */
+void sde_encoder_misr_sign_event_notify(struct drm_encoder *drm_enc);
+
+/**
+ * sde_encoder_register_misr_event - register or deregister MISR event
+ * @drm_enc: pointer to drm encoder
+ * @val: indicates register or deregister
+ */
+static inline int sde_encoder_register_misr_event(struct drm_encoder *drm_enc, bool val)
+{
+	struct sde_encoder_virt *sde_enc = NULL;
+
+	if (!drm_enc)
+		return -EINVAL;
+
+	sde_enc = to_sde_encoder_virt(drm_enc);
+	atomic_set(&sde_enc->misr_enable, val);
+
+	/*
+	 * To setup MISR ctl reg, set misr_reconfigure as true.
+	 * MISR is calculated for the specific number of frames.
+	 */
+	if (atomic_read(&sde_enc->misr_enable)) {
+		sde_enc->misr_reconfigure = true;
+		sde_enc->misr_frame_count = 1;
+	}
+
+	return 0;
+}
 #endif /* __SDE_ENCODER_H__ */

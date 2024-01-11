@@ -117,6 +117,7 @@ enum msm_mdp_plane_property {
 	PLANE_PROP_DMA_GC,
 	PLANE_PROP_FP16_GC,
 	PLANE_PROP_FP16_CSC,
+	PLANE_PROP_UBWC_STATS_ROI,
 
 	/* # of blob properties */
 	PLANE_PROP_BLOBCOUNT,
@@ -140,7 +141,6 @@ enum msm_mdp_plane_property {
 	PLANE_PROP_INVERSE_PMA,
 	PLANE_PROP_FP16_IGC,
 	PLANE_PROP_FP16_UNMULT,
-	PLANE_PROP_UBWC_STATS_ROI,
 
 	/* enum/bitmask properties */
 	PLANE_PROP_BLEND_OP,
@@ -186,7 +186,6 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_VM_REQ_STATE,
 	CRTC_PROP_NOISE_LAYER_V1,
 	CRTC_PROP_FRAME_DATA_BUF,
-
 	/* total # of properties */
 	CRTC_PROP_COUNT
 };
@@ -238,7 +237,9 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_CACHE_STATE,
 	CONNECTOR_PROP_DSC_MODE,
 	CONNECTOR_PROP_WB_USAGE_TYPE,
-
+	/* mi add crtc property */
+	CONNECTOR_PROP_MI_LAYER_INFO,
+	CONNECTOR_PROP_QSYNC_MIN_FPS_INDEX,
 	/* total # of properties */
 	CONNECTOR_PROP_COUNT
 };
@@ -828,20 +829,24 @@ struct msm_mode_info {
 
 /**
  * struct msm_resource_caps_info - defines hw resources
+ * @num_lm_in_use       number of layer mixers allocated to a specified encoder
  * @num_lm              number of layer mixers available
  * @num_dsc             number of dsc available
  * @num_vdc             number of vdc available
  * @num_ctl             number of ctl available
  * @num_3dmux           number of 3d mux available
  * @max_mixer_width:    max width supported by layer mixer
+ * @merge_3d_mask:      bitmap of available 3d mux resource
  */
 struct msm_resource_caps_info {
+	uint32_t num_lm_in_use;
 	uint32_t num_lm;
 	uint32_t num_dsc;
 	uint32_t num_vdc;
 	uint32_t num_ctl;
 	uint32_t num_3dmux;
 	uint32_t max_mixer_width;
+	unsigned long merge_3d_mask;
 };
 
 /**
@@ -862,6 +867,7 @@ struct msm_resource_caps_info {
  * @display_type:       Enum for type of display
  * @is_te_using_watchdog_timer:  Boolean to indicate watchdog TE is
  *				 used instead of panel TE in cmd mode panels
+ * @switch_vsync_delay: Boolean to indicate whether panel requires extra vsync during fps switch
  * @poms_align_vsync:   poms with vsync aligned
  * @roi_caps:           Region of interest capability info
  * @qsync_min_fps	Minimum fps supported by Qsync feature
@@ -891,6 +897,7 @@ struct msm_display_info {
 
 	uint32_t display_type;
 	bool is_te_using_watchdog_timer;
+	bool switch_vsync_delay;
 	bool poms_align_vsync;
 	struct msm_roi_caps roi_caps;
 
@@ -933,6 +940,7 @@ struct msm_display_kickoff_params {
 struct msm_display_conn_params {
 	uint32_t qsync_mode;
 	bool qsync_update;
+	uint32_t qsync_min_fps_index;
 };
 
 /**
@@ -1081,6 +1089,8 @@ struct msm_drm_private {
 	struct list_head vm_client_list;
 };
 
+struct drm_connector_state *_msm_get_conn_state(struct drm_crtc_state *crtc_state);
+
 /* get struct msm_kms * from drm_device * */
 #define ddev_to_msm_kms(D) ((D) && (D)->dev_private ? \
 		((struct msm_drm_private *)((D)->dev_private))->kms : NULL)
@@ -1112,6 +1122,8 @@ void __msm_fence_worker(struct work_struct *work);
 struct drm_atomic_state *msm_atomic_state_alloc(struct drm_device *dev);
 void msm_atomic_state_clear(struct drm_atomic_state *state);
 void msm_atomic_state_free(struct drm_atomic_state *state);
+
+void msm_atomic_flush_display_threads(struct msm_drm_private *priv);
 
 int msm_gem_init_vma(struct msm_gem_address_space *aspace,
 		struct msm_gem_vma *vma, int npages);
@@ -1260,8 +1272,10 @@ struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 		struct drm_gem_object **bos);
 struct drm_framebuffer *msm_framebuffer_create(struct drm_device *dev,
 		struct drm_file *file, const struct drm_mode_fb_cmd2 *mode_cmd);
-void msm_framebuffer_set_cache_hint(struct drm_framebuffer *fb, u32 flags, u32 type);
-void msm_framebuffer_get_cache_hint(struct drm_framebuffer *fb, u32 *flags, u32 *type);
+int msm_framebuffer_set_cache_hint(struct drm_framebuffer *fb,
+		u32 flags, u32 rd_type, u32 wr_type);
+int msm_framebuffer_get_cache_hint(struct drm_framebuffer *fb,
+		u32 *flags, u32 *rd_type, u32 *wr_type);
 
 struct drm_fb_helper *msm_fbdev_init(struct drm_device *dev);
 void msm_fbdev_free(struct drm_device *dev);

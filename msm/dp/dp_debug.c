@@ -74,18 +74,17 @@ static int dp_debug_attach_sim_bridge(struct dp_debug_private *debug)
 {
 	int ret;
 
-	if (debug->sim_bridge)
-		return 0;
+	if (!debug->sim_bridge) {
+		ret = dp_sim_create_bridge(debug->dev, &debug->sim_bridge);
+		if (ret)
+			return ret;
 
-	ret = dp_sim_create_bridge(debug->dev, &debug->sim_bridge);
-	if (ret)
-		return ret;
+		if (debug->sim_bridge->register_hpd)
+			debug->sim_bridge->register_hpd(debug->sim_bridge,
+					dp_debug_sim_hpd_cb, debug);
+	}
 
 	dp_sim_update_port_num(debug->sim_bridge, 1);
-
-	if (debug->sim_bridge->register_hpd)
-		debug->sim_bridge->register_hpd(debug->sim_bridge,
-				dp_debug_sim_hpd_cb, debug);
 
 	return 0;
 }
@@ -120,6 +119,8 @@ static void dp_debug_disable_sim_mode(struct dp_debug_private *debug,
 	/* update sim mode */
 	debug->sim_mode &= ~mode_mask;
 	dp_sim_set_sim_mode(debug->sim_bridge, debug->sim_mode);
+
+	dp_sim_update_port_num(debug->sim_bridge, 0);
 
 	/* switch to normal mode */
 	if (!debug->sim_mode)
@@ -333,12 +334,96 @@ static ssize_t dp_debug_read_dpcd(struct file *file,
 		}
 	}
 
-	len += scnprintf(buf + len , buf_size - len, "%04x: ", debug->dpcd_offset);
+	len += scnprintf(buf + len, buf_size - len, "%04x: ", debug->dpcd_offset);
 
 	while (offset < debug->dpcd_size)
 		len += scnprintf(buf + len, buf_size - len, "%02x ", dpcd[offset++]);
 
 	kfree(dpcd);
+
+	len = min_t(size_t, count, len);
+	if (!copy_to_user(user_buff, buf, len))
+		*ppos += len;
+
+bail:
+	mutex_unlock(&debug->lock);
+	kfree(buf);
+
+	return len;
+}
+
+static ssize_t dp_debug_read_crc(struct file *file, char __user *user_buff, size_t count,
+		loff_t *ppos)
+{
+	struct dp_debug_private *debug = file->private_data;
+	char *buf;
+	int const buf_size = SZ_4K;
+	u32 len = 0;
+	u16 src_crc[3] = {0};
+	u16 sink_crc[3] = {0};
+	struct dp_misr40_data misr40 = {0};
+	u32 retries = 2;
+	struct drm_connector *drm_conn;
+	struct sde_connector *sde_conn;
+	struct dp_panel *panel;
+	int i;
+	int rc;
+
+	if (!debug || !debug->aux)
+		return -ENODEV;
+
+	if (*ppos)
+		return 0;
+
+	buf = kzalloc(buf_size, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&debug->lock);
+
+	if (!debug->panel || !debug->ctrl)
+		goto bail;
+
+	if (debug->panel->mst_state) {
+		drm_conn = drm_connector_lookup((*debug->connector)->dev, NULL, debug->mst_con_id);
+		if (!drm_conn) {
+			DP_ERR("connector %u not in mst list\n", debug->mst_con_id);
+			goto bail;
+		}
+
+		sde_conn = to_sde_connector(drm_conn);
+		panel = sde_conn->drv_panel;
+	} else {
+		panel = debug->panel;
+	}
+
+	panel->get_src_crc(panel, src_crc);
+	panel->get_sink_crc(panel, sink_crc);
+
+	len += scnprintf(buf + len, buf_size - len, "FRAME_CRC:\nSource vs Sink\n");
+
+	len += scnprintf(buf + len, buf_size - len, "CRC_R: %04X %04X\n", src_crc[0], sink_crc[0]);
+	len += scnprintf(buf + len, buf_size - len, "CRC_G: %04X %04X\n", src_crc[1], sink_crc[1]);
+	len += scnprintf(buf + len, buf_size - len, "CRC_B: %04X %04X\n", src_crc[2], sink_crc[2]);
+
+	debug->ctrl->setup_misr(debug->ctrl);
+
+	while (retries--) {
+		mutex_unlock(&debug->lock);
+		msleep(30);
+		mutex_lock(&debug->lock);
+
+		rc = debug->ctrl->read_misr(debug->ctrl, &misr40);
+		if (rc != -EAGAIN)
+			break;
+	}
+
+	len += scnprintf(buf + len, buf_size - len, "\nMISR40:\nCTLR vs PHY\n");
+	for (i = 0; i < 4; i++) {
+		len += scnprintf(buf + len, buf_size - len, "Lane%d %08X%08X %08X%08X\n", i,
+				misr40.ctrl_misr[2 * i], misr40.ctrl_misr[(2 * i) + 1],
+				misr40.phy_misr[2 * i], misr40.phy_misr[(2 * i) + 1]);
+	}
 
 	len = min_t(size_t, count, len);
 	if (!copy_to_user(user_buff, buf, len))
@@ -544,13 +629,13 @@ static ssize_t dp_debug_write_mst_con_id(struct file *file,
 
 	debug->mst_con_id = con_id;
 
-	if (status == connector_status_connected)
-		DP_INFO("plug mst connector %d\n", con_id);
-	else
-		DP_INFO("unplug mst connector %d\n", con_id);
-
 	if (status == connector_status_unknown)
 		goto out;
+
+	if (status == connector_status_connected)
+		DP_INFO("plug mst connector %d\n", con_id);
+	else if (status == connector_status_disconnected)
+		DP_INFO("unplug mst connector %d\n", con_id);
 
 	mst_port = sde_conn->mst_port;
 	dp_panel = sde_conn->drv_panel;
@@ -893,7 +978,7 @@ static ssize_t dp_debug_tpg_write(struct file *file,
 	struct dp_debug_private *debug = file->private_data;
 	char buf[SZ_8];
 	size_t len = 0;
-	u32 tpg_state = 0;
+	u32 tpg_pattern = 0;
 
 	if (!debug)
 		return -ENODEV;
@@ -908,19 +993,18 @@ static ssize_t dp_debug_tpg_write(struct file *file,
 
 	buf[len] = '\0';
 
-	if (kstrtoint(buf, 10, &tpg_state) != 0)
+	if (kstrtoint(buf, 10, &tpg_pattern) != 0)
 		goto bail;
 
-	tpg_state &= 0x1;
-	DP_DEBUG("tpg_state: %d\n", tpg_state);
+	DP_DEBUG("tpg_pattern: %d\n", tpg_pattern);
 
-	if (tpg_state == debug->dp_debug.tpg_state)
+	if (tpg_pattern == debug->dp_debug.tpg_pattern)
 		goto bail;
 
 	if (debug->panel)
-		debug->panel->tpg_config(debug->panel, tpg_state);
+		debug->panel->tpg_config(debug->panel, tpg_pattern);
 
-	debug->dp_debug.tpg_state = tpg_state;
+	debug->dp_debug.tpg_pattern = tpg_pattern;
 bail:
 	return len;
 }
@@ -1386,7 +1470,7 @@ static ssize_t dp_debug_tpg_read(struct file *file,
 	if (*ppos)
 		return 0;
 
-	len += snprintf(buf, SZ_8, "%d\n", debug->dp_debug.tpg_state);
+	len += scnprintf(buf, SZ_8, "%d\n", debug->dp_debug.tpg_pattern);
 
 	len = min_t(size_t, count, len);
 	if (copy_to_user(user_buff, buf, len))
@@ -1677,8 +1761,10 @@ static void dp_debug_set_sim_mode(struct dp_debug_private *debug, bool sim)
 		display = sde_conn->display;
 		if (display->base_connector == (*debug->connector)) {
 			panel = sde_conn->drv_panel;
-			panel->mode_override = false;
-			panel->mst_hide = false;
+			if (panel) {
+				panel->mode_override = false;
+				panel->mst_hide = false;
+			}
 		}
 	}
 	drm_connector_list_iter_end(&conn_iter);
@@ -1870,6 +1956,11 @@ static const struct file_operations dpcd_fops = {
 	.open = simple_open,
 	.write = dp_debug_write_dpcd,
 	.read = dp_debug_read_dpcd,
+};
+
+static const struct file_operations crc_fops = {
+	.open = simple_open,
+	.read = dp_debug_read_crc,
 };
 
 static const struct file_operations connected_fops = {
@@ -2102,6 +2193,13 @@ static int dp_debug_init_sink_caps(struct dp_debug_private *debug,
 		rc = PTR_ERR(file);
 		DP_ERR("[%s] debugfs dpcd failed, rc=%d\n",
 			DEBUG_NAME, rc);
+		return rc;
+	}
+
+	file = debugfs_create_file("crc", 0644, dir, debug, &crc_fops);
+	if (IS_ERR_OR_NULL(file)) {
+		rc = PTR_ERR(file);
+		DP_ERR("[%s] debugfs crc failed, rc=%d\n", DEBUG_NAME, rc);
 		return rc;
 	}
 
@@ -2371,6 +2469,8 @@ static void dp_debug_abort(struct dp_debug *dp_debug)
 	debug = container_of(dp_debug, struct dp_debug_private, dp_debug);
 
 	mutex_lock(&debug->lock);
+	// disconnect has already been handled. so clear hotplug
+	debug->hotplug = false;
 	dp_debug_set_sim_mode(debug, false);
 	mutex_unlock(&debug->lock);
 }

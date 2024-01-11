@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -49,6 +49,51 @@
 		SDE_PLANE_DIRTY_FP16_GC | SDE_PLANE_DIRTY_FP16_CSC |\
 		SDE_PLANE_DIRTY_FP16_UNMULT)
 #define SDE_PLANE_DIRTY_ALL	(0xFFFFFFFF & ~(SDE_PLANE_DIRTY_CP))
+
+struct sde_plane {
+	struct drm_plane base;
+
+	struct mutex lock;
+
+	enum sde_sspp pipe;
+	uint64_t features;      /* capabilities from catalog */
+	uint32_t perf_features; /* perf capabilities from catalog */
+	uint32_t nformats;
+	uint32_t formats[64];
+
+	struct sde_hw_pipe *pipe_hw;
+	struct sde_hw_pipe_cfg pipe_cfg;
+	struct sde_hw_sharp_cfg sharp_cfg;
+	struct sde_hw_pipe_qos_cfg pipe_qos_cfg;
+	uint32_t color_fill;
+	bool is_error;
+	bool is_rt_pipe;
+	enum sde_wb_usage_type wb_usage_type;
+	bool is_virtual;
+	struct list_head mplane_list;
+	struct sde_mdss_cfg *catalog;
+	bool revalidate;
+	bool xin_halt_forced_clk;
+
+	uint32_t cached_lut_flag;
+	struct sde_hw_scaler3_cfg scaler3_cfg;
+	struct sde_hw_pixel_ext pixel_ext;
+
+	const struct sde_sspp_sub_blks *pipe_sblk;
+
+	char pipe_name[SDE_NAME_SIZE];
+
+	struct msm_property_info property_info;
+	struct msm_property_data property_data[PLANE_PROP_COUNT];
+	struct drm_property_blob *blob_info;
+	struct drm_property_blob *blob_rot_caps;
+
+	/* debugfs related stuff */
+	struct dentry *debugfs_root;
+	bool debugfs_default_scale;
+};
+
+#define to_sde_plane(x) container_of(x, struct sde_plane, base)
 
 /**
  * enum sde_layout
@@ -115,6 +160,9 @@ enum sde_plane_sclcheck_state {
  * @ubwc_stats_roi: cached roi for ubwc stats
  * @line_insertion_cfg: line insertion configuration
  * @lineinsertion_feature:	panel line insertion feature
+ * @csc_cfg: csc configuration for pipe
+ * @csc_usr_ptr: valid user override configuration for csc
+ * @csc_ptr: default csc configuration
  */
 struct sde_plane_state {
 	struct drm_plane_state base;
@@ -144,6 +192,7 @@ struct sde_plane_state {
 	struct sde_hw_pipe_sc_cfg sc_cfg;
 	uint32_t rotation;
 	uint32_t static_cache_state;
+	uint32_t static_cache_type;
 
 	struct sde_hw_pipe_cdp_cfg cdp_cfg;
 
@@ -152,6 +201,10 @@ struct sde_plane_state {
 	struct sde_drm_ubwc_stats_roi ubwc_stats_roi;
 	struct sde_hw_pipe_line_insertion_cfg line_insertion_cfg;
 	bool lineinsertion_feature;
+
+	struct sde_csc_cfg csc_cfg;
+	struct sde_csc_cfg *csc_usr_ptr;
+	struct sde_csc_cfg *csc_ptr;
 };
 
 /**
@@ -359,9 +412,23 @@ bool sde_plane_is_cache_required(struct drm_plane *plane,
  * sde_plane_static_img_control - Switch the static image state
  * @plane: Pointer to drm plane structure
  * @state: state to set
+ * @type: cache type to set
  */
 void sde_plane_static_img_control(struct drm_plane *plane,
-		enum sde_sys_cache_state state);
+		enum sde_sys_cache_state state, enum sde_sys_cache_type type);
 
 void sde_plane_add_data_to_minidump_va(struct drm_plane *plane);
+
+/**
+ * sde_plane_dump_input_fence - dumps plane input fence info
+ * @plane: Pointer to drm plane structure with the input fence we want to dump
+ */
+void sde_plane_dump_input_fence(struct drm_plane *plane);
+
+/**
+ * sde_plane_is_sw_fence_signaled - determine if the sw input dma-fence is signaled
+ * @plane: Pointer to drm plane structure with the input fence to check
+ * Returns: true if the input sw fence is signaled, otherwise false.
+ */
+bool sde_plane_is_sw_fence_signaled(struct drm_plane *plane);
 #endif /* _SDE_PLANE_H_ */

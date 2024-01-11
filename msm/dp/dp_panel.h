@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
+ * Copyright (c) 2022, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -136,6 +137,7 @@ struct dp_panel {
 	u32 pbn;
 
 	u32 dsc_blks_in_use;
+	u32 max_lm;
 	/* DRM connector assosiated with this panel */
 	struct drm_connector *connector;
 
@@ -167,7 +169,7 @@ struct dp_panel {
 	int (*read_sink_caps)(struct dp_panel *dp_panel,
 		struct drm_connector *connector, bool multi_func);
 	u32 (*get_mode_bpp)(struct dp_panel *dp_panel, u32 mode_max_bpp,
-			u32 mode_pclk_khz);
+			u32 mode_pclk_khz, bool dsc_en);
 	int (*get_modes)(struct dp_panel *dp_panel,
 		struct drm_connector *connector, struct dp_display_mode *mode);
 	void (*handle_sink_request)(struct dp_panel *dp_panel);
@@ -176,7 +178,7 @@ struct dp_panel {
 			bool dhdr_update, u64 core_clk_rate, bool flush);
 	int (*set_colorspace)(struct dp_panel *dp_panel,
 		u32 colorspace);
-	void (*tpg_config)(struct dp_panel *dp_panel, bool enable);
+	void (*tpg_config)(struct dp_panel *dp_panel, u32 pattern);
 	int (*spd_config)(struct dp_panel *dp_panel);
 	bool (*hdr_supported)(struct dp_panel *dp_panel);
 
@@ -191,6 +193,9 @@ struct dp_panel {
 		const struct drm_display_mode *drm_mode,
 		struct dp_display_mode *dp_mode);
 	void (*update_pps)(struct dp_panel *dp_panel, char *pps_cmd);
+	int (*sink_crc_enable)(struct dp_panel *dp_panel, bool enable);
+	int (*get_src_crc)(struct dp_panel *dp_panel, u16 *crc);
+	int (*get_sink_crc)(struct dp_panel *dp_panel, u16 *crc);
 };
 
 struct dp_tu_calc_input {

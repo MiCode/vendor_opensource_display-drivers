@@ -15,6 +15,7 @@
 #include "msm_prop.h"
 #include "sde_kms.h"
 #include "sde_fence.h"
+#include "mi_sde_connector.h"
 
 #define SDE_CONNECTOR_NAME_SIZE	16
 #define SDE_CONNECTOR_DHDR_MEMPOOL_MAX_SIZE	SZ_32
@@ -206,11 +207,13 @@ struct sde_connector_ops {
 	 * @display: Pointer to private display structure
 	 * @params: Parameter bundle of connector-stored information for
 	 *	kickoff-time programming into the display
+	 * @force_update_dsi_clocks: Bool to force dsi clocks
 	 * Returns: Zero on success
 	 */
 	int (*pre_kickoff)(struct drm_connector *connector,
 			void *display,
-			struct msm_display_kickoff_params *params);
+			struct msm_display_kickoff_params *params,
+			bool force_update_dsi_clocks);
 
 	/**
 	 * clk_ctrl - perform clk enable/disable on the connector
@@ -483,6 +486,18 @@ struct sde_connector_dyn_hdr_metadata {
 };
 
 /**
+ * struct sde_misr_sign - defines sde misr signature structure
+ * @num_valid_misr : count of valid misr signature
+ * @roi_list : list of roi
+ * @misr_sign_value : list of misr signature
+ */
+struct sde_misr_sign {
+	atomic64_t num_valid_misr;
+	struct msm_roi_list roi_list;
+	u64 misr_sign_value[MAX_DSI_DISPLAYS];
+};
+
+/**
  * struct sde_connector - local sde connector structure
  * @base: Base drm connector structure
  * @connector_type: Set to one of DRM_MODE_CONNECTOR_ types
@@ -530,6 +545,7 @@ struct sde_connector_dyn_hdr_metadata {
  * @hdr_min_luminance: desired min luminance obtained from HDR block
  * @hdr_supported: does the sink support HDR content
  * @color_enc_fmt: Colorimetry encoding formats of sink
+ * @lm_mask: preferred LM mask for connector
  * @allow_bl_update: Flag to indicate if BL update is allowed currently or not
  * @dimming_bl_notify_enabled: Flag to indicate if dimming bl notify is enabled or not
  * @qsync_mode: Cached Qsync mode, 0=disabled, 1=continuous mode
@@ -541,6 +557,9 @@ struct sde_connector_dyn_hdr_metadata {
  * @cmd_rx_buf: the return buffer of response of command transfer
  * @rx_len: the length of dcs command received buffer
  * @cached_edid: cached edid data for the connector
+ * @misr_event_notify_enabled: Flag to indicate if misr event notify is enabled or not
+ * @previous_misr_sign: store previous misr signature
+ * @hwfence_wb_retire_fences_enable: enable hw-fences for wb retire-fence
  */
 struct sde_connector {
 	struct drm_connector base;
@@ -563,6 +582,7 @@ struct sde_connector {
 	int dpms_mode;
 	int lp_mode;
 	int last_panel_power_mode;
+	int max_esd_check_power_mode;
 
 	struct msm_property_info property_info;
 	struct msm_property_data property_data[CONNECTOR_PROP_COUNT];
@@ -601,6 +621,7 @@ struct sde_connector {
 	bool hdr_supported;
 
 	u32 color_enc_fmt;
+	u32 lm_mask;
 
 	u8 hdr_plus_app_ver;
 	u32 qsync_mode;
@@ -616,6 +637,16 @@ struct sde_connector {
 	int rx_len;
 
 	struct edid *cached_edid;
+
+	bool misr_event_notify_enabled;
+	struct sde_misr_sign previous_misr_sign;
+
+	bool hwfence_wb_retire_fences_enable;
+
+	/* xiaomi add */
+	struct mi_sde_cdev *mi_cdev;
+	struct mi_layer_flags mi_layer_flags;
+	u32 qsync_min_fps_index;
 };
 
 /**
@@ -656,6 +687,14 @@ struct sde_connector {
  */
 #define sde_connector_get_qsync_mode(C) \
 	((C) ? to_sde_connector((C))->qsync_mode : 0)
+
+/**
+ * sde_connector_get_qsync_min_fps_setted - get sde connector's qsync_mode
+ * @C: Pointer to drm connector structure
+ * Returns: Current cached qsync_mode for given connector
+ */
+#define sde_connector_get_qsync_min_fps_setted(C) \
+       ((C) ? to_sde_connector((C))->qsync_min_fps_index : 0)
 
 /**
  * sde_connector_get_avr_step - get sde connector's avr_step
@@ -748,6 +787,13 @@ struct sde_connector_state {
  */
 #define sde_connector_get_out_fb(S) \
 	((S) ? to_sde_connector_state((S))->out_fb : 0)
+
+/**
+ * sde_connector_update_panel_dead - update connector panel_dead property
+ * @conn: pointer to drm connector
+ * @is_dead: bool to set panel_dead property
+ */
+void sde_connector_update_panel_dead(struct drm_connector *conn, bool is_dead);
 
 /**
  * sde_connector_get_kms - helper to get sde_kms from connector
@@ -1045,11 +1091,21 @@ int sde_connector_register_custom_event(struct sde_kms *kms,
 		struct drm_connector *conn_drm, u32 event, bool en);
 
 /**
- * sde_connector_pre_kickoff - trigger kickoff time feature programming
+ * sde_connector_update_complete_commit - trigger time feature programming
  * @connector: Pointer to drm connector object
+ * @force_update_dsi_clocks: Bool to force update dsi clocks
  * Returns: Zero on success
  */
-int sde_connector_pre_kickoff(struct drm_connector *connector);
+int sde_connector_update_complete_commit(struct drm_connector *connector,
+		bool force_update_dsi_clocks);
+
+/**
+ * sde_connector_pre_kickoff - trigger kickoff time feature programming
+ * @connector: Pointer to drm connector object
+ * @force_update_dsi_clocks: Bool to force update dsi clocks
+ * Returns: Zero on success
+ */
+int sde_connector_pre_kickoff(struct drm_connector *connector, bool force_update_dsi_clocks);
 
 /**
  * sde_connector_prepare_commit - trigger commit time feature programming
@@ -1196,6 +1252,45 @@ static inline int sde_connector_state_get_compression_info(
 	return 0;
 }
 
+static inline bool sde_connector_is_quadpipe_3d_merge_enabled(
+		struct drm_connector_state *conn_state)
+{
+	enum sde_rm_topology_name topology;
+
+	if (!conn_state)
+		return false;
+
+	topology = sde_connector_get_property(conn_state, CONNECTOR_PROP_TOPOLOGY_NAME);
+	if ((topology == SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE)
+			|| (topology == SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE_DSC))
+		return true;
+
+	return false;
+}
+
+static inline bool sde_connector_is_dualpipe_3d_merge_enabled(
+		struct drm_connector_state *conn_state)
+{
+	enum sde_rm_topology_name topology;
+
+	if (!conn_state)
+		return false;
+
+	topology = sde_connector_get_property(conn_state, CONNECTOR_PROP_TOPOLOGY_NAME);
+	if ((topology == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE)
+			|| (topology == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE_DSC)
+			|| (topology == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE_VDC))
+		return true;
+
+	return false;
+}
+
+static inline bool sde_connector_is_3d_merge_enabled(struct drm_connector_state *conn_state)
+{
+	return sde_connector_is_dualpipe_3d_merge_enabled(conn_state)
+		|| sde_connector_is_quadpipe_3d_merge_enabled(conn_state);
+}
+
 /**
 * sde_connector_set_msm_mode - set msm_mode for connector state
 * @conn_state: Pointer to drm connector state structure
@@ -1275,6 +1370,8 @@ int sde_connector_esd_status(struct drm_connector *connector);
 const char *sde_conn_get_topology_name(struct drm_connector *conn,
 		struct msm_display_topology topology);
 
+void _sde_connector_report_panel_dead(struct sde_connector *conn,
+		bool skip_pre_kickoff);
 /*
  * sde_connector_is_line_insertion_supported - get line insertion
  * feature bit value from panel

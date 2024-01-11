@@ -205,12 +205,15 @@ enum {
 
 /**
  * sde_sys_cache_type: Types of system cache supported
- * SDE_SYS_CACHE_DISP: Static img system cache
- * SDE_SYS_CACHE_MAX:  Maximum number of sys cache users
- * SDE_SYS_CACHE_NONE: Sys cache not used
+ * SDE_SYS_CACHE_DISP: System cache for static display read/write path use case
+ * SDE_SYS_CACHE_DISP_1: System cache for static display write path use case
+ * SDE_SYS_CACHE_DISP_WB: System cache for IWE use case
+ * SDE_SYS_CACHE_MAX:  Maximum number of system cache users
+ * SDE_SYS_CACHE_NONE: System cache not used
  */
 enum sde_sys_cache_type {
 	SDE_SYS_CACHE_DISP,
+	SDE_SYS_CACHE_DISP_1,
 	SDE_SYS_CACHE_DISP_WB,
 	SDE_SYS_CACHE_MAX,
 	SDE_SYS_CACHE_NONE = SDE_SYS_CACHE_MAX
@@ -554,6 +557,7 @@ enum {
  *                              blocks
  * @SDE_CTL_UIDLE               CTL supports uidle
  * @SDE_CTL_UNIFIED_DSPP_FLUSH  CTL supports only one flush bit for DSPP
+ * @SDE_CTL_HW_FENCE            CTL supports hw fencing
  * @SDE_CTL_MAX
  */
 enum {
@@ -563,6 +567,7 @@ enum {
 	SDE_CTL_ACTIVE_CFG,
 	SDE_CTL_UIDLE,
 	SDE_CTL_UNIFIED_DSPP_FLUSH,
+	SDE_CTL_HW_FENCE,
 	SDE_CTL_MAX
 };
 
@@ -710,7 +715,6 @@ enum {
  * @SDE_FEATURE_INLINE_SKIP_THRESHOLD      Skip inline rotation threshold
  * @SDE_FEATURE_DITHER_LUMA_MODE           Dither LUMA mode supported
  * @SDE_FEATURE_RC_LM_FLUSH_OVERRIDE       RC LM flush override supported
- * @SDE_FEATURE_SYSCACHE       System cache supported
  * @SDE_FEATURE_SUI_MISR       SecureUI MISR supported
  * @SDE_FEATURE_SUI_BLENDSTAGE SecureUI Blendstage supported
  * @SDE_FEATURE_SUI_NS_ALLOWED SecureUI allowed to access non-secure context banks
@@ -718,6 +722,9 @@ enum {
  * @SDE_FEATURE_UBWC_STATS     UBWC statistics supported
  * @SDE_FEATURE_VBIF_CLK_SPLIT VBIF clock split supported
  * @SDE_FEATURE_CTL_DONE       Support for CTL DONE irq
+ * @SDE_FEATURE_SYS_CACHE_NSE  Support for no-self-evict feature
+ * @SDE_FEATURE_HW_FENCE_IPCC  HW fence supports ipcc signaling in dpu
+ * @SDE_FEATURE_EMULATED_ENV   Emulated environment supported
  * @SDE_FEATURE_MAX:             MAX features value
  */
 enum sde_mdss_features {
@@ -750,7 +757,6 @@ enum sde_mdss_features {
 	SDE_FEATURE_INLINE_SKIP_THRESHOLD,
 	SDE_FEATURE_DITHER_LUMA_MODE,
 	SDE_FEATURE_RC_LM_FLUSH_OVERRIDE,
-	SDE_FEATURE_SYSCACHE,
 	SDE_FEATURE_SUI_MISR,
 	SDE_FEATURE_SUI_BLENDSTAGE,
 	SDE_FEATURE_SUI_NS_ALLOWED,
@@ -758,6 +764,9 @@ enum sde_mdss_features {
 	SDE_FEATURE_UBWC_STATS,
 	SDE_FEATURE_VBIF_CLK_SPLIT,
 	SDE_FEATURE_CTL_DONE,
+	SDE_FEATURE_SYS_CACHE_NSE,
+	SDE_FEATURE_HW_FENCE_IPCC,
+	SDE_FEATURE_EMULATED_ENV,
 	SDE_FEATURE_MAX
 };
 
@@ -1268,6 +1277,7 @@ struct sde_sspp_cfg {
  * @dspp:              ID of connected DSPP, DSPP_MAX if unsupported
  * @pingpong:          ID of connected PingPong, PINGPONG_MAX if unsupported
  * @ds:                ID of connected DS, DS_MAX if unsupported
+ * @merge_3d:          ID of connected 3d MUX
  * @dummy_mixer:       identifies dcwb mixer is considered dummy
  * @lm_pair_mask:      Bitmask of LMs that can be controlled by same CTL
  */
@@ -1277,6 +1287,7 @@ struct sde_lm_cfg {
 	u32 dspp;
 	u32 pingpong;
 	u32 ds;
+	u32 merge_3d;
 	bool dummy_mixer;
 	unsigned long lm_pair_mask;
 };
@@ -1344,11 +1355,13 @@ struct sde_ds_cfg {
  * @features           bit mask identifying sub-blocks/features
  * @sblk               sub-blocks information
  * @merge_3d_id        merge_3d block id
+ * @dcwb:              ID of DCWB, DCWB_MAX if invalid
  */
 struct sde_pingpong_cfg  {
 	SDE_HW_BLK_INFO;
 	const struct sde_pingpong_sub_blks *sblk;
 	int merge_3d_id;
+	u32 dcwb_id;
 };
 
 /**
@@ -1600,6 +1613,7 @@ struct sde_reg_dma_blk_info {
  * @version            version of lutdma hw blocks
  * @trigger_sel_off    offset to trigger select registers of lutdma
  * @broadcast_disabled flag indicating if broadcast usage should be avoided
+ * @split_vbif_supported indicates if VBIF clock split is supported
  * @xin_id             VBIF xin client-id for LUTDMA
  * @vbif_idx           VBIF id (RT/NRT)
  * @base_off           Base offset of LUTDMA from the MDSS root
@@ -1610,6 +1624,7 @@ struct sde_reg_dma_cfg {
 	u32 version;
 	u32 trigger_sel_off;
 	u32 broadcast_disabled;
+	u32 split_vbif_supported;
 	u32 xin_id;
 	u32 vbif_idx;
 	u32 base_off;
@@ -1639,13 +1654,11 @@ struct sde_perf_cdp_cfg {
 
 /**
  * struct sde_sc_cfg - define system cache configuration
- * @has_sys_cache: true if system cache is enabled
  * @llcc_uuid: llcc use case id for the system cache
  * @llcc_scid: scid for the system cache
  * @llcc_slice_size: slice size of the system cache
  */
 struct sde_sc_cfg {
-	bool has_sys_cache;
 	int llcc_uid;
 	int llcc_scid;
 	size_t llcc_slice_size;
@@ -1747,11 +1760,11 @@ struct sde_perf_cfg {
  * @smart_dma_rev       smartDMA block version
  * @ctl_rev             control path block version
  * @sid_rev             SID version
- * @has_precise_vsync_ts  indicates if HW has vsyc timestamp logging capability
  * @has_reduced_ob_max indicate if DSC size is limited to 10k
  * @ts_prefill_rev      prefill traffic shaper feature revision
  * @true_inline_rot_rev inline rotator feature revision
  * @dnsc_blur_rev       downscale blur HW block version
+ * @hw_fence_rev        hw fence feature revision
  * @mdss_count          number of valid MDSS HW blocks
  * @mdss                array of pointers to MDSS HW blocks
  * @mdss_hw_block_size  max offset of MDSS_HW block (0 offset), used for debug
@@ -1842,6 +1855,8 @@ struct sde_perf_cfg {
  * @inline_rot_restricted_formats       restricted formats for inline rotation
  * @dnsc_blur_filters        supported filters for downscale blur
  * @dnsc_blur_filter_count   supported filter count for downscale blur
+ * @ipcc_protocol_id    ipcc protocol id for the hw
+ * @ipcc_client_phys_id dpu ipcc client id for the hw, physical client id if supported
  */
 struct sde_mdss_cfg {
 	/* Block Revisions */
@@ -1853,11 +1868,11 @@ struct sde_mdss_cfg {
 	u32 smart_dma_rev;
 	u32 ctl_rev;
 	u32 sid_rev;
-	bool has_precise_vsync_ts;
 	bool has_reduced_ob_max;
 	u32 ts_prefill_rev;
 	u32 true_inline_rot_rev;
 	u32 dnsc_blur_rev;
+	u32 hw_fence_rev;
 
 	/* HW Blocks */
 	u32 mdss_count;
@@ -1943,6 +1958,7 @@ struct sde_mdss_cfg {
 	u32 allowed_dsc_reservation_switch;
 	enum autorefresh_disable_sequence autorefresh_disable_seq;
 	struct sde_sc_cfg sc_cfg[SDE_SYS_CACHE_MAX];
+	DECLARE_BITMAP(sde_sys_cache_type_map, SDE_SYS_CACHE_MAX);
 	struct sde_perf_cfg perf;
 	struct sde_uidle_cfg uidle_cfg;
 	struct list_head irq_offset_list;
@@ -1958,6 +1974,9 @@ struct sde_mdss_cfg {
 	struct sde_format_extended *inline_rot_restricted_formats;
 	struct sde_dnsc_blur_filter_info *dnsc_blur_filters;
 	u32 dnsc_blur_filter_count;
+
+	u32 ipcc_protocol_id;
+	u32 ipcc_client_phys_id;
 };
 
 struct sde_mdss_hw_cfg_handler {
@@ -1985,13 +2004,15 @@ struct sde_mdss_hw_cfg_handler {
 #define BLK_RC(s) ((s)->rc)
 
 /**
- * sde_hw_set_preference: populate the individual hw lm preferences,
- *                        overwrite if exists
- * @sde_cfg:              pointer to sspp cfg
- * @num_lm:               num lms to set preference
- * @disp_type:            is the given display primary/secondary
+ * sde_hw_mixer_set_preference: populate the individual hw lm preferences,
+ *                              overwrite if exists
+ * @sde_cfg:                    pointer to sspp cfg
+ * @num_lm:                     num lms to set preference
+ * @disp_type:                  is the given display primary/secondary
+ *
+ * Return:                      layer mixer mask allocated for the disp_type
  */
-void sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm,
+u32 sde_hw_mixer_set_preference(struct sde_mdss_cfg *sde_cfg, u32 num_lm,
 		uint32_t disp_type);
 
 /**

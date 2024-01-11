@@ -3,6 +3,10 @@ DISPLAY_SELECT := CONFIG_DRM_MSM=m
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
+ifeq (true, $(strip $(is-factory-build)))
+	DISPLAY_FACTORY_BUILD := CONFIG_DISPLAY_FACTORY_BUILD=1
+endif
+
 # This makefile is only for DLKM
 ifneq ($(findstring vendor,$(LOCAL_PATH)),)
 
@@ -21,11 +25,16 @@ KBUILD_OPTIONS := DISPLAY_ROOT=$(DISPLAY_BLD_DIR)
 KBUILD_OPTIONS += MODNAME=msm_drm
 KBUILD_OPTIONS += BOARD_PLATFORM=$(TARGET_BOARD_PLATFORM)
 KBUILD_OPTIONS += $(DISPLAY_SELECT)
+KBUILD_OPTIONS += $(DISPLAY_FACTORY_BUILD)
 
+ifneq ($(TARGET_BOARD_AUTO),true)
 KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,mmrm-module-symvers)/Module.symvers
 ifneq ($(TARGET_BOARD_PLATFORM), taro)
 	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,msm-ext-disp-module-symvers)/Module.symvers
 	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,sec-module-symvers)/Module.symvers
+	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,hw-fence-module-symvers)/Module.symvers
+	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,sync-fence-module-symvers)/Module.symvers
+endif
 endif
 
 ###########################################################
@@ -37,13 +46,19 @@ LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 
+ifneq ($(TARGET_BOARD_AUTO),true)
 LOCAL_REQUIRED_MODULES    += mmrm-module-symvers
 LOCAL_ADDITIONAL_DEPENDENCIES += $(call intermediates-dir-for,DLKM,mmrm-module-symvers)/Module.symvers
 ifneq ($(TARGET_BOARD_PLATFORM), taro)
 	LOCAL_REQUIRED_MODULES    += msm-ext-disp-module-symvers
 	LOCAL_REQUIRED_MODULES    += sec-module-symvers
+	LOCAL_REQUIRED_MODULES    += hw-fence-module-symvers
+	LOCAL_REQUIRED_MODULES    += sync-fence-module-symvers
 	LOCAL_ADDITIONAL_DEPENDENCIES += $(call intermediates-dir-for,DLKM,msm-ext-disp-module-symvers)/Module.symvers
 	LOCAL_ADDITIONAL_DEPENDENCIES += $(call intermediates-dir-for,DLKM,sec-module-symvers)/Module.symvers
+	LOCAL_ADDITIONAL_DEPENDENCIES += $(call intermediates-dir-for,DLKM,hw-fence-module-symvers)/Module.symvers
+	LOCAL_ADDITIONAL_DEPENDENCIES += $(call intermediates-dir-for,DLKM,sync-fence-module-symvers)/Module.symvers
+endif
 endif
 
 include $(DLKM_DIR)/Build_external_kernelmodule.mk

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2014 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -36,31 +37,6 @@ struct msm_commit {
 	struct kthread_work commit_work;
 };
 
-static struct drm_connector_state *_msm_get_conn_state(struct drm_crtc_state *crtc_state)
-{
-	struct drm_connector *conn;
-	struct drm_connector_state *conn_state = NULL;
-	struct drm_device *dev;
-	struct drm_connector_list_iter conn_iter;
-
-	if (!crtc_state || !crtc_state->crtc)
-		return NULL;
-
-	dev = crtc_state->crtc->dev;
-	drm_connector_list_iter_begin(dev, &conn_iter);
-
-	drm_for_each_connector_iter(conn, &conn_iter) {
-		if (drm_connector_mask(conn) & crtc_state->connector_mask) {
-			if (!(conn_state && conn->connector_type ==
-					DRM_MODE_CONNECTOR_VIRTUAL))
-				conn_state = conn->state;
-		}
-	}
-
-	drm_connector_list_iter_end(&conn_iter);
-	return conn_state;
-}
-
 static inline bool _msm_seamless_for_crtc(struct drm_atomic_state *state,
 			struct drm_crtc_state *crtc_state, bool enable)
 {
@@ -87,7 +63,8 @@ static inline bool _msm_seamless_for_crtc(struct drm_atomic_state *state,
 	if (msm_is_mode_seamless_dms(msm_mode) && !enable)
 		return true;
 
-	if (!crtc_state->mode_changed && crtc_state->connectors_changed) {
+	if (!crtc_state->mode_changed && crtc_state->connectors_changed &&
+		crtc_state->active) {
 		for_each_old_connector_in_state(state, connector,
 				conn_state, i) {
 			if ((conn_state->crtc == crtc_state->crtc) ||
@@ -256,7 +233,8 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 		if (!old_crtc_state->active)
 			continue;
 
-		if (_msm_seamless_for_crtc(old_state, crtc->state, false))
+		if (!crtc->state->active_changed &&
+				_msm_seamless_for_crtc(old_state, crtc->state, false))
 			continue;
 
 		funcs = crtc->helper_private;
@@ -316,6 +294,9 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 		new_crtc_state = connector->state->crtc->state;
 		mode = &new_crtc_state->mode;
 		adjusted_mode = &new_crtc_state->adjusted_mode;
+
+		if (!new_crtc_state->active)
+			continue;
 
 		if (!new_crtc_state->mode_changed &&
 				new_crtc_state->connectors_changed) {
@@ -410,7 +391,8 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 		if (!new_crtc_state->active)
 			continue;
 
-		if (_msm_seamless_for_crtc(old_state, crtc->state, true))
+		if (!crtc->state->active_changed &&
+				_msm_seamless_for_crtc(old_state, crtc->state, true))
 			continue;
 
 		funcs = crtc->helper_private;

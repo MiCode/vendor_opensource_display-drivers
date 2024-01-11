@@ -580,7 +580,7 @@ struct sde_drm_ubwc_stats_data {
  */
 #define SDE_FRAME_DATA_BUFFER_MAX	0x3
 #define SDE_FRAME_DATA_GUARD_BYTES	0xFF
-#define SDE_FRAME_DATA_MAX_PLANES	0x10
+#define SDE_FRAME_DATA_MAX_PLANES	0x14
 
 /**
  * struct sde_drm_frame_data_buffers_ctrl - control frame data buffers
@@ -917,6 +917,8 @@ struct sde_drm_dnsc_blur_cfg {
 #define DRM_EVENT_FRAME_DATA 0x8000000C
 #define DRM_EVENT_DIMMING_BL 0X8000000D
 #define DRM_EVENT_VM_RELEASE 0X8000000E
+#define DRM_EVENT_OPR_VALUE 0X8000000F
+#define DRM_EVENT_MISR_SIGN 0X80000010
 
 #ifndef DRM_MODE_FLAG_VID_MODE_PANEL
 #define DRM_MODE_FLAG_VID_MODE_PANEL        0x01

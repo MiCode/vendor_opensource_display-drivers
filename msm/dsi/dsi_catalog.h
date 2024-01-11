@@ -126,6 +126,8 @@ void dsi_phy_hw_v4_0_reset_clk_en_sel(struct dsi_phy_hw *phy);
 void dsi_phy_hw_v4_0_set_continuous_clk(struct dsi_phy_hw *phy, bool enable);
 void dsi_phy_hw_v4_0_commit_phy_timing(struct dsi_phy_hw *phy,
 		struct dsi_phy_per_lane_cfgs *timing);
+void dsi_phy_hw_v4_0_get_phy_timing(struct dsi_phy_hw *phy,
+		u32 *phy_timming, u32 size);
 
 /* Definitions for 4nm PHY hardware driver */
 void dsi_phy_hw_v5_0_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *cfg);
@@ -144,6 +146,8 @@ void dsi_phy_hw_v5_0_reset_clk_en_sel(struct dsi_phy_hw *phy);
 void dsi_phy_hw_v5_0_set_continuous_clk(struct dsi_phy_hw *phy, bool enable);
 void dsi_phy_hw_v5_0_commit_phy_timing(struct dsi_phy_hw *phy,
 		struct dsi_phy_per_lane_cfgs *timing);
+void dsi_phy_hw_v5_0_get_phy_timing(struct dsi_phy_hw *phy,
+		u32 *phy_timming, u32 size);
 
 /* DSI controller common ops */
 u32 dsi_ctrl_hw_cmn_get_interrupt_status(struct dsi_ctrl_hw *ctrl);
@@ -164,7 +168,9 @@ void dsi_ctrl_hw_cmn_cmd_test_pattern_setup(struct dsi_ctrl_hw *ctrl,
 			       enum dsi_test_pattern  type,
 			       u32 init_val,
 			       u32 stream_id);
-void dsi_ctrl_hw_cmn_test_pattern_enable(struct dsi_ctrl_hw *ctrl, bool enable);
+void dsi_ctrl_hw_cmn_test_pattern_enable(struct dsi_ctrl_hw *ctrl, bool enable,
+				enum dsi_ctrl_tpg_pattern pattern,
+				enum dsi_op_mode panel_mode);
 void dsi_ctrl_hw_cmn_trigger_cmd_test_pattern(struct dsi_ctrl_hw *ctrl,
 				 u32 stream_id);
 
@@ -179,6 +185,8 @@ void dsi_ctrl_hw_cmn_setup_avr(struct dsi_ctrl_hw *ctrl, bool enable);
 
 void dsi_ctrl_hw_cmn_set_video_timing(struct dsi_ctrl_hw *ctrl,
 			 struct dsi_mode_info *mode);
+u32 dsi_ctrl_hw_cmn_get_video_timing(struct dsi_ctrl_hw *ctrl,
+			 const char *type);
 void dsi_ctrl_hw_cmn_set_timing_db(struct dsi_ctrl_hw *ctrl,
 				     bool enable);
 void dsi_ctrl_hw_cmn_cmd_engine_setup(struct dsi_ctrl_hw *ctrl,
@@ -231,6 +239,8 @@ void dsi_ctrl_hw_cmn_error_intr_ctrl(struct dsi_ctrl_hw *ctrl, bool en);
 u32 dsi_ctrl_hw_cmn_get_error_mask(struct dsi_ctrl_hw *ctrl);
 u32 dsi_ctrl_hw_cmn_get_hw_version(struct dsi_ctrl_hw *ctrl);
 int dsi_ctrl_hw_cmn_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl_hw *ctrl);
+void dsi_ctrl_hw_cmn_init_cmddma_trig_ctrl(struct dsi_ctrl_hw *ctrl,
+					   struct dsi_host_common_cfg *cfg);
 
 /* Definitions specific to 1.4 DSI controller hardware */
 int dsi_ctrl_hw_14_wait_for_lane_idle(struct dsi_ctrl_hw *ctrl, u32 lanes);
@@ -312,7 +322,8 @@ void dsi_phy_hw_v5_0_dyn_refresh_pipe_delay(struct dsi_phy_hw *phy,
 
 int dsi_phy_hw_v5_0_cache_phy_timings(struct dsi_phy_per_lane_cfgs *timings,
 				      u32 *dst, u32 size);
-void dsi_phy_hw_v5_0_phy_idle_off(struct dsi_phy_hw *phy);
+void dsi_phy_hw_v5_0_phy_idle_off(struct dsi_phy_hw *phy,
+				struct dsi_phy_cfg *cfg);
 void dsi_ctrl_hw_22_configure_cmddma_window(struct dsi_ctrl_hw *ctrl,
 		struct dsi_ctrl_cmd_dma_info *cmd,
 		u32 line_no, u32 window);
