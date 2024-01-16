@@ -519,15 +519,22 @@ struct sde_drm_wb_cfg {
 };
 
 #define SDE_MAX_ROI_V1	4
+#define SDE_DRM_SPR_ROI	1
+/* DRM_ROI_CONFIG_FLAGS */
+#define SDE_DRM_ROI_SPR_FLAG_EN	(1 << 0)
 
 /**
  * struct sde_drm_roi_v1 - list of regions of interest for a drm object
  * @num_rects: number of valid rectangles in the roi array
  * @roi: list of roi rectangles
+ * @roi_feature_flags: flags indicates that specific roi rect is valid or not
+ * @spr_roi: list of roi rectangles for spr
  */
 struct sde_drm_roi_v1 {
 	__u32 num_rects;
 	struct drm_clip_rect roi[SDE_MAX_ROI_V1];
+	__u32 roi_feature_flags;
+	struct drm_clip_rect spr_roi[SDE_MAX_ROI_V1];
 };
 
 /**

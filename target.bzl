@@ -29,6 +29,7 @@ def define_pineapple():
                 "CONFIG_MSM_MMRM",
                 "CONFIG_QTI_HW_FENCE",
                 "CONFIG_QCOM_SPEC_SYNC",
-                "CONFIG_MSM_EXT_DISPLAY"
+                "CONFIG_MSM_EXT_DISPLAY",
+                "MI_DISPLAY_MODIFY",
             ],
         )

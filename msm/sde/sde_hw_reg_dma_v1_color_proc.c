@@ -5902,14 +5902,14 @@ int reg_dmav1_setup_spr_pu_common(struct sde_hw_dspp *ctx, struct sde_hw_cp_cfg 
 			return -EINVAL;
 		}
 
-		if ((roi_list->roi[0].x2 - roi_list->roi[0].x1) != hw_cfg->displayh) {
+		if ((roi_list->spr_roi[0].x2 - roi_list->spr_roi[0].x1) != hw_cfg->displayh) {
 			DRM_ERROR("pu region not full width %d\n",
-					(roi_list->roi[0].x2 - roi_list->roi[0].x1));
+					(roi_list->spr_roi[0].x2 - roi_list->spr_roi[0].x1));
 			return -EINVAL;
 		}
 
-		reg = APPLY_MASK_AND_SHIFT(roi_list->roi[0].x1, 16, 0) |
-			APPLY_MASK_AND_SHIFT(roi_list->roi[0].y1, 16, 16);
+		reg = APPLY_MASK_AND_SHIFT(roi_list->spr_roi[0].x1, 16, 0) |
+			APPLY_MASK_AND_SHIFT(roi_list->spr_roi[0].y1, 16, 16);
 	}
 
 	REG_DMA_INIT_OPS(dma_write_cfg, MDSS, SPR_PU_CFG, buffer);
@@ -6007,10 +6007,10 @@ void reg_dmav1_setup_spr_pu_cfgv2(struct sde_hw_dspp *ctx, void *cfg)
 		uint32_t reg = ctx->spr_cfg_18_default;
 
 		//No ROI list means full screen update so apply without modification
-		if (roi_list && roi_list->roi[0].y1 != 0)
+		if (roi_list && roi_list->spr_roi[0].y1 != 0)
 			reg &= 0xFFFFFFFC;
 
-		if (roi_list && roi_list->roi[0].y2 != hw_cfg->displayv)
+		if (roi_list && roi_list->spr_roi[0].y2 != hw_cfg->displayv)
 			reg &= 0xFFFFFFCF;
 
 		base_off = ctx->hw.blk_off + ctx->cap->sblk->spr.base;

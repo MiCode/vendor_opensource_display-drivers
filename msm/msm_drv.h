@@ -255,6 +255,9 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_WB_USAGE_TYPE,
 	CONNECTOR_PROP_WB_ROT_TYPE,
 	CONNECTOR_PROP_WB_ROT_BYTES_PER_CLK,
+#ifdef MI_DISPLAY_MODIFY
+	CONNECTOR_PROP_MI_LAYER_INFO,
+#endif
 	CONNECTOR_PROP_BPP_MODE,
 
 	/* total # of properties */
@@ -961,10 +964,14 @@ struct msm_display_info {
  * struct msm_roi_list - list of regions of interest for a drm object
  * @num_rects: number of valid rectangles in the roi array
  * @roi: list of roi rectangles
+ * @roi_feature_flags: flags indicates that specific roi rect is valid or not
+ * @spr_roi: list of roi rectangles for spr
  */
 struct msm_roi_list {
 	uint32_t num_rects;
 	struct drm_clip_rect roi[MSM_MAX_ROI];
+	uint32_t roi_feature_flags;
+	struct drm_clip_rect spr_roi[MSM_MAX_ROI];
 };
 
 /**

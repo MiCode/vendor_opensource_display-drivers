@@ -957,9 +957,9 @@ static int _check_spr_pu_feature(struct sde_hw_dspp *hw_dspp,
 		return -EINVAL;
 	}
 
-	if ((roi_list->roi[0].x2 - roi_list->roi[0].x1) != hw_cfg->displayh) {
+	if ((roi_list->spr_roi[0].x2 - roi_list->spr_roi[0].x1) != hw_cfg->displayh) {
 		SDE_ERROR("pu region not full width %d\n",
-				(roi_list->roi[0].x2 - roi_list->roi[0].x1));
+				(roi_list->spr_roi[0].x2 - roi_list->spr_roi[0].x1));
 		return -EINVAL;
 	}
 

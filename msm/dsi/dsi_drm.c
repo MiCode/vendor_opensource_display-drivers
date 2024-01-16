@@ -17,6 +17,12 @@
 #include "msm_drv.h"
 #include "sde_encoder.h"
 
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_disp_print.h"
+#include "mi_dsi_display.h"
+#include "mi_panel_id.h"
+#endif
+
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
 
@@ -186,6 +192,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+#ifdef MI_DISPLAY_MODIFY
+	struct dsi_display *display;
+#endif
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
@@ -196,7 +205,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		DSI_ERR("Incorrect bridge details\n");
 		return;
 	}
-
+#ifdef MI_DISPLAY_MODIFY
+	display = c_bridge->display;
+#endif
 	if (bridge->encoder->crtc->state->active_changed)
 		atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
 
@@ -239,6 +250,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	if (rc)
 		DSI_ERR("Continuous splash pipeline cleanup failed, rc=%d\n",
 									rc);
+#ifdef MI_DISPLAY_MODIFY
+	sde_connector_update_panel_dead(display->drm_conn, !display->panel->panel_initialized);
+#endif
 }
 
 static void dsi_bridge_enable(struct drm_bridge *bridge)
@@ -276,6 +290,13 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 				true);
 		}
 	}
+#ifdef MI_DISPLAY_MODIFY
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, true);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display enable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
+#endif
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
@@ -293,7 +314,13 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 
 	if (display)
 		display->enabled = false;
-
+#ifdef MI_DISPLAY_MODIFY
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, false);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display disable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
+#endif
 	if (display && display->drm_conn) {
 		conn_state = to_sde_connector_state(display->drm_conn->state);
 		if (!conn_state) {

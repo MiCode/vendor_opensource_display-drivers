@@ -49,6 +49,10 @@
 #include "msm_drv.h"
 #include "sde_vm.h"
 
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_sde_crtc.h"
+#endif
+
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
 
@@ -976,10 +980,18 @@ static int _sde_crtc_set_roi_v1(struct drm_crtc_state *state,
 				roi_v1.num_rects);
 		return -EINVAL;
 	}
-
+	cstate->user_roi_list.roi_feature_flags = roi_v1.roi_feature_flags;
 	cstate->user_roi_list.num_rects = roi_v1.num_rects;
 	for (i = 0; i < roi_v1.num_rects; ++i) {
 		cstate->user_roi_list.roi[i] = roi_v1.roi[i];
+		if (cstate->user_roi_list.roi_feature_flags & SDE_DRM_ROI_SPR_FLAG_EN)
+			cstate->user_roi_list.spr_roi[i] = roi_v1.spr_roi[i];
+		else
+			/*
+			 * backward compatible, spr_roi has the same value with roi,
+			 * it will have the same behavior with before.
+			 */
+			cstate->user_roi_list.spr_roi[i] = roi_v1.roi[i];
 		SDE_DEBUG("crtc%d: roi%d: roi (%d,%d) (%d,%d)\n",
 				DRMID(crtc), i,
 				cstate->user_roi_list.roi[i].x1,
@@ -991,6 +1003,28 @@ static int _sde_crtc_set_roi_v1(struct drm_crtc_state *state,
 				cstate->user_roi_list.roi[i].y1,
 				cstate->user_roi_list.roi[i].x2,
 				cstate->user_roi_list.roi[i].y2);
+		SDE_DEBUG("crtc%d: spr roi%d: spr roi (%d,%d) (%d,%d)\n",
+				DRMID(crtc), i,
+				cstate->user_roi_list.spr_roi[i].x1,
+				cstate->user_roi_list.spr_roi[i].y1,
+				cstate->user_roi_list.spr_roi[i].x2,
+				cstate->user_roi_list.spr_roi[i].y2);
+		SDE_EVT32_VERBOSE(DRMID(crtc),
+				cstate->user_roi_list.spr_roi[i].x1,
+				cstate->user_roi_list.spr_roi[i].y1,
+				cstate->user_roi_list.spr_roi[i].x2,
+				cstate->user_roi_list.spr_roi[i].y2);
+		SDE_DEBUG("crtc%d, roi_feature_flags %d: spr roi%d: spr roi (%d,%d) (%d,%d)\n",
+				DRMID(crtc), roi_v1.roi_feature_flags, i,
+				roi_v1.spr_roi[i].x1,
+				roi_v1.spr_roi[i].y1,
+				roi_v1.spr_roi[i].x2,
+				roi_v1.spr_roi[i].y2);
+		SDE_EVT32_VERBOSE(DRMID(crtc), roi_v1.roi_feature_flags,
+				roi_v1.spr_roi[i].x1,
+				roi_v1.spr_roi[i].y1,
+				roi_v1.spr_roi[i].x2,
+				roi_v1.spr_roi[i].y2);
 	}
 
 	return 0;
@@ -1055,13 +1089,14 @@ static int _sde_crtc_set_crtc_roi(struct drm_crtc *crtc,
 			continue;
 
 		/*
-		 * current driver only supports same connector and crtc size,
-		 * but if support for different sizes is added, driver needs
-		 * to check the connector roi here to make sure is full screen
-		 * for dsc 3d-mux topology that doesn't support partial update.
+		 * When enable spr 2D filter in PU, it require over fetch lines.
+		 * In this case, the roi size of connector and crtc are different.
+		 * But the spr_roi is the original roi withou over fetch lines,
+		 * that should same with connector size.
 		 */
-		if (memcmp(&sde_conn_state->rois, &crtc_state->user_roi_list,
-				sizeof(crtc_state->user_roi_list))) {
+		if (memcmp(&sde_conn_state->rois.roi, &crtc_state->user_roi_list.spr_roi,
+				sizeof(crtc_state->user_roi_list.spr_roi)) &&
+				(sde_conn_state->rois.num_rects != crtc_state->user_roi_list.num_rects)) {
 			SDE_ERROR("%s: crtc -> conn roi scaling unsupported\n",
 					sde_crtc->name);
 			return -EINVAL;
@@ -4483,7 +4518,6 @@ static void sde_crtc_atomic_flush_common(struct drm_crtc *crtc,
 	 */
 	if (unlikely(!sde_crtc->num_mixers))
 		return;
-
 	SDE_ATRACE_BEGIN("sde_crtc_atomic_flush");
 
 	/*
@@ -4534,6 +4568,7 @@ static void sde_crtc_atomic_flush_common(struct drm_crtc *crtc,
 
 	/* Kickoff will be scheduled by outer layer */
 	SDE_ATRACE_END("sde_crtc_atomic_flush");
+
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
@@ -4839,9 +4874,13 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	if (unlikely(!sde_crtc->num_mixers))
 		return;
 
+
 	SDE_ATRACE_BEGIN("crtc_commit");
 
 	idle_pc_state = sde_crtc_get_property(cstate, CRTC_PROP_IDLE_PC_STATE);
+#ifdef MI_DISPLAY_MODIFY
+	mi_sde_crtc_check_layer_flags(crtc);
+#endif
 
 	sde_crtc->kickoff_in_progress = true;
 	sde_crtc->handle_fence_error_bw_update = false;
@@ -4929,6 +4968,7 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	}
 
 	SDE_ATRACE_END("crtc_commit");
+
 }
 
 /**

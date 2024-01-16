@@ -4,6 +4,10 @@ LOCAL_PATH := $(call my-dir)
 LOCAL_MODULE_DDK_BUILD := true
 include $(CLEAR_VARS)
 
+ifeq (true, $(strip $(is-factory-build)))
+	DISPLAY_FACTORY_BUILD := CONFIG_DISPLAY_FACTORY_BUILD=1
+endif
+
 # This makefile is only for DLKM
 ifneq ($(findstring vendor,$(LOCAL_PATH)),)
 
@@ -22,6 +26,7 @@ KBUILD_OPTIONS := DISPLAY_ROOT=$(DISPLAY_BLD_DIR)
 KBUILD_OPTIONS += MODNAME=msm_drm
 KBUILD_OPTIONS += BOARD_PLATFORM=$(TARGET_BOARD_PLATFORM)
 KBUILD_OPTIONS += $(DISPLAY_SELECT)
+KBUILD_OPTIONS += $(DISPLAY_FACTORY_BUILD)
 
 ifneq ($(TARGET_BOARD_AUTO),true)
 KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,mmrm-module-symvers)/Module.symvers
