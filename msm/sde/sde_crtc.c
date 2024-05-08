@@ -49,6 +49,10 @@
 #include "msm_drv.h"
 #include "sde_vm.h"
 
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_sde_crtc.h"
+#endif
+
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
 
@@ -976,7 +980,6 @@ static int _sde_crtc_set_roi_v1(struct drm_crtc_state *state,
 				roi_v1.num_rects);
 		return -EINVAL;
 	}
-
 	cstate->user_roi_list.roi_feature_flags = roi_v1.roi_feature_flags;
 	cstate->user_roi_list.num_rects = roi_v1.num_rects;
 	for (i = 0; i < roi_v1.num_rects; ++i) {
@@ -1000,6 +1003,17 @@ static int _sde_crtc_set_roi_v1(struct drm_crtc_state *state,
 				cstate->user_roi_list.roi[i].y1,
 				cstate->user_roi_list.roi[i].x2,
 				cstate->user_roi_list.roi[i].y2);
+		SDE_DEBUG("crtc%d: spr roi%d: spr roi (%d,%d) (%d,%d)\n",
+				DRMID(crtc), i,
+				cstate->user_roi_list.spr_roi[i].x1,
+				cstate->user_roi_list.spr_roi[i].y1,
+				cstate->user_roi_list.spr_roi[i].x2,
+				cstate->user_roi_list.spr_roi[i].y2);
+		SDE_EVT32_VERBOSE(DRMID(crtc),
+				cstate->user_roi_list.spr_roi[i].x1,
+				cstate->user_roi_list.spr_roi[i].y1,
+				cstate->user_roi_list.spr_roi[i].x2,
+				cstate->user_roi_list.spr_roi[i].y2);
 		SDE_DEBUG("crtc%d, roi_feature_flags %d: spr roi%d: spr roi (%d,%d) (%d,%d)\n",
 				DRMID(crtc), roi_v1.roi_feature_flags, i,
 				roi_v1.spr_roi[i].x1,
@@ -4506,7 +4520,6 @@ static void sde_crtc_atomic_flush_common(struct drm_crtc *crtc,
 	 */
 	if (unlikely(!sde_crtc->num_mixers))
 		return;
-
 	SDE_ATRACE_BEGIN("sde_crtc_atomic_flush");
 
 	/*
@@ -4865,6 +4878,9 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	SDE_ATRACE_BEGIN("crtc_commit");
 
 	idle_pc_state = sde_crtc_get_property(cstate, CRTC_PROP_IDLE_PC_STATE);
+#ifdef MI_DISPLAY_MODIFY
+	mi_sde_crtc_check_layer_flags(crtc);
+#endif
 
 	sde_crtc->kickoff_in_progress = true;
 	sde_crtc->handle_fence_error_bw_update = false;
@@ -4952,6 +4968,7 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	}
 
 	SDE_ATRACE_END("crtc_commit");
+
 }
 
 /**
@@ -5373,7 +5390,6 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 			crtc->state->enable, sde_crtc->cached_encoder_mask);
 	sde_crtc->enabled = false;
 	sde_crtc->cached_encoder_mask = 0;
-	cstate->cached_cwb_enc_mask = 0;
 
 	/* Try to disable uidle */
 	sde_core_perf_crtc_update_uidle(crtc, false);

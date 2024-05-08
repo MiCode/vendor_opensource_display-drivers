@@ -25,6 +25,8 @@
 #include "msm_kms.h"
 #include "sde_trace.h"
 #include <drm/drm_atomic_uapi.h>
+#ifdef MI_DISPLAY_MODIFY
+#endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0))
 #include <linux/dma-fence-chain.h>
 #endif

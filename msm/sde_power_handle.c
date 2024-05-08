@@ -26,7 +26,7 @@
 #define KBPS2BPS(x) ((x) * 1000ULL)
 
 /* wait for at most 2 vsync for lowest refresh rate (1hz) */
-#define SDE_MMRM_CB_TIMEOUT_MS		2000
+#define SDE_MMRM_CB_TIMEOUT_MS		100
 #define SDE_MMRM_CB_TIMEOUT_JIFFIES  msecs_to_jiffies( \
 		SDE_MMRM_CB_TIMEOUT_MS)
 
