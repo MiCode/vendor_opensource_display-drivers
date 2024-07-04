@@ -64,6 +64,9 @@
 #define DSIPHY_CMN_LANE_STATUS1						0x14C
 #define DSIPHY_CMN_GLBL_DIGTOP_SPARE10                                  0x1AC
 #define DSIPHY_CMN_SL_DSI_LANE_CTRL1                                0x1B4
+/*N19 code for HQ-351909 by zhaobeidou at 2024/1/23 start*/
+//#define MDSS_1_DSI_0_PHY_DSIPHY_CMN_VREG_CTRL_0     0xAE94420
+/*N19 code for HQ-351909 by zhaobeidou at 2024/1/23 end*/
 
 /* n = 0..3 for data lanes and n = 4 for clock lane */
 #define DSIPHY_LNX_CFG0(n)                         (0x200 + (0x80 * (n)))
@@ -432,6 +435,9 @@ static void dsi_phy_hw_dphy_enable(struct dsi_phy_hw *phy,
 	/* Enable LDO */
 	DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_0, vreg_ctrl_0);
 	DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_1, vreg_ctrl_1);
+	/*N19 code for HQ-351909 by zhaobeidou at 2024/1/23 start*/
+	//DSI_W32(phy, MDSS_1_DSI_0_PHY_DSIPHY_CMN_VREG_CTRL_0, 0x03);
+	/*N19 code for HQ-351909 by zhaobeidou at 2024/1/23 end*/
 	DSI_W32(phy, DSIPHY_CMN_CTRL_3, 0x00);
 	DSI_W32(phy, DSIPHY_CMN_GLBL_STR_SWI_CAL_SEL_CTRL,
 					glbl_str_swi_cal_sel_ctrl);

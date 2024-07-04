@@ -278,6 +278,16 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_ON,
 	DSI_CMD_SET_PRE_OFF,
 	DSI_CMD_SET_OFF,
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 start */
+	DSI_CMD_SET_CABC_UI_ON,
+	DSI_CMD_SET_CABC_STILL_ON,
+	DSI_CMD_SET_CABC_MOVIE_ON,
+	DSI_CMD_SET_CABC_OFF,
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 end */
+/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 start */
+	DSI_CMD_SET_SCREEN_OFF,
+/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 start */
+	DSI_CMD_SET_SCREEN_ON,
 	DSI_CMD_SET_POST_OFF,
 	DSI_CMD_SET_PRE_RES_SWITCH,
 	DSI_CMD_SET_RES_SWITCH,
@@ -296,6 +306,9 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+	DSI_CMD_STE_PROXIMITY_OFF,
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
 	DSI_CMD_SET_MAX
 };
 

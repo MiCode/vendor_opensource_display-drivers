@@ -4556,6 +4556,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool config_changed)
 	struct sde_encoder_phys *phys;
 	unsigned int i;
 
+
 	if (!drm_enc) {
 		SDE_ERROR("invalid encoder\n");
 		return;

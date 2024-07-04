@@ -248,6 +248,7 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 									rc);
 }
 
+
 static void dsi_bridge_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;

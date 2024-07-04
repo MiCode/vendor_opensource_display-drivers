@@ -11,6 +11,12 @@
 #include <linux/pwm.h>
 #include <video/mipi_display.h>
 #include <misc/isl97900_led.h>
+#if IS_ENABLED(CONFIG_OCP2131_BIAS)
+#include <linux/ocp2131_bias.h>
+#endif
+#if IS_ENABLED(CONFIG_XIAOMI_PANEL_NOTIFIER)
+#include <misc/xiaomi_panel_notifier.h>
+#endif
 
 #include "dsi_panel.h"
 #include "dsi_ctrl_hw.h"
@@ -18,6 +24,7 @@
 #include "sde_dbg.h"
 #include "sde_dsc_helper.h"
 #include "sde_vdc_helper.h"
+#include "dsi_display.h"
 
 /**
  * topology is currently defined by a set of following 3 values:
@@ -40,6 +47,43 @@
 #define RSCC_MODE_THRESHOLD_TIME_US 40
 #define DCS_COMMAND_THRESHOLD_TIME_US 40
 
+//N19 code for HQ-382380 by zhaobeidou at 2024/04/25 start
+extern bool first_startup_panel_n19_36_02;
+////N19 code for HQ-382380 by zhaobeidou at 2024/04/25 end
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+extern bool touch_priximity_enable;
+extern bool is_panel_n19_36_02_0a;
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
+/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 start */
+extern int n19_panel_id;
+/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 end */
+#if IS_ENABLED(CONFIG_XIAOMI_PANEL_NOTIFIER)
+static struct xiaomi_panel_notify_data g_notify_data;
+#endif
+
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 start */
+extern bool touch_gesture_enable;
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 end */
+/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 start */
+static int last_level = 0;
+/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 end */
+/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 start */
+#define to_dsi_display(x) container_of(x, struct dsi_display, host)
+static struct dsi_read_config g_dsi_read_cfg;
+/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 end */
+/* N19 code for HQ-368050 by zhangyundan at 2024/01/29 start */
+#define BL_LEVEL_MAX 2047
+#define BL_LEVEL_MAX_HBM 4095
+#define BL_LEVEL_450NIT 1435
+#define BL_LEVEL_550NIT 1800
+/* N19 code for HQ-368050 by zhangyundan at 2024/01/29 end */
+/* N19 code for HQ-370536 by zhangyundan at 2024/02/05 start */
+/* N19 code for HQ-381043 by zhangyundan at 2024/04/11 start */
+#define BL_LEVEL_MIN 11
+#define BL_LEVEL_MIN_36 11
+#define BL_LEVEL_MIN_42 11
+/* N19 code for HQ-381043 by zhangyundan at 2024/02/05 end */
+/* N19 code for HQ-370536 by zhangyundan at 2024/02/05 end */
 static void dsi_dce_prepare_pps_header(char *buf, u32 pps_delay_ms)
 {
 	char *bp;
@@ -356,6 +400,7 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 {
 	int rc = 0;
 
+	pr_info("%s: entry\n", __func__);
 	rc = dsi_pwr_enable_regulator(&panel->power_info, true);
 	if (rc) {
 		DSI_ERR("[%s] failed to enable vregs, rc=%d\n",
@@ -368,6 +413,13 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 		DSI_ERR("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
 		goto error_disable_vregs;
 	}
+	if (is_panel_n19_36_02_0a != true) {
+		gpio_set_value(panel->reset_config.reset_gpio, 0);
+		usleep_range(4 * 1000,(4 * 1000) + 100);
+	}
+#if IS_ENABLED(CONFIG_OCP2131_BIAS)
+	ocp2131_enable();
+#endif
 
 	rc = dsi_panel_reset(panel);
 	if (rc) {
@@ -399,11 +451,11 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
 		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
-
+	/* N19 code for HQ-351910 by zhangyundan at 2024/01/24 start */
 	if (gpio_is_valid(panel->reset_config.reset_gpio) &&
 					!panel->reset_gpio_always_on)
 		gpio_set_value(panel->reset_config.reset_gpio, 0);
-
+	/* N19 code for HQ-351910 by zhangyundan at 2024/01/24 end */
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
 		gpio_set_value(panel->reset_config.lcd_mode_sel_gpio, 0);
 
@@ -427,7 +479,7 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 
 	return rc;
 }
-static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 				enum dsi_cmd_set_type type)
 {
 	int rc = 0, i = 0;
@@ -563,28 +615,70 @@ static int mipi_dsi_dcs_subtype_set_display_brightness(struct mipi_dsi_device *d
 
 	return mipi_dsi_dcs_write(dsi, bl_dcs_subtype, payload, sizeof(payload));
 }
-
+/* N19 code for HQ-354981 by zhangyundan at 2023/12/19 start */
 static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	u32 bl_lvl)
 {
 	int rc = 0;
 	unsigned long mode_flags = 0;
 	struct mipi_dsi_device *dsi = NULL;
+	/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 start */
+	int brightness, brightness_store = 0;
+	/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 end */
+	u32 command[2];
 
 	if (!panel || (bl_lvl > 0xffff)) {
 		DSI_ERR("invalid params\n");
 		return -EINVAL;
 	}
-
+	/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 start */
+	if (last_level == bl_lvl){
+		pr_info("Backlight is same,skip!");
+		return rc;
+        }
+	/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 end */
 	dsi = &panel->mipi_device;
 	if (unlikely(panel->bl_config.lp_mode)) {
 		mode_flags = dsi->mode_flags;
 		dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	}
+	/* N19 code for HQ-368050 by zhangyundan at 2024/01/29 start */
+	brightness = bl_lvl;
+	/* N19 code for HQ-370536 by zhangyundan at 2024/02/05 start */
+	/* N19 code for HQ-377507 by zhangyundan at 2024/03/15 start */
+	if (is_panel_n19_36_02_0a == true && 0 < bl_lvl && bl_lvl <= BL_LEVEL_MIN) {
+		bl_lvl = BL_LEVEL_MIN_36;
+	} else if (is_panel_n19_36_02_0a == false && 0 < bl_lvl && bl_lvl <= BL_LEVEL_MIN) {
+		bl_lvl = BL_LEVEL_MIN_42;
+	}
+	/* N19 code for HQ-377507 by zhangyundan at 2024/03/15 start */
+	/* N19 code for HQ-370536 by zhangyundan at 2024/02/05 end */
+	if (bl_lvl <= BL_LEVEL_MAX) {
+		bl_lvl = bl_lvl * BL_LEVEL_450NIT / BL_LEVEL_MAX ;
+	} else if ((BL_LEVEL_MAX < bl_lvl) && (bl_lvl <= BL_LEVEL_MAX_HBM)) {
+		bl_lvl = (bl_lvl - (BL_LEVEL_MAX + 1)) * (BL_LEVEL_550NIT - BL_LEVEL_450NIT) / BL_LEVEL_MAX + BL_LEVEL_450NIT;
+	} else {
+		pr_err("backlight out of 4095!\n");
+		return rc;
+	}
+	brightness_store = bl_lvl;
+	if (panel->bl_config.bl_inverted_dbv) {
+		command[0] = (bl_lvl >> 8) & 0x07;
+		command[1] = bl_lvl & 0xff;
+	} else {
+		command[0] = (bl_lvl >> 3) & 0xff;
+		command[1] = (bl_lvl << 1) & 0x0e;
+	}
+	bl_lvl = (command[1] << 8) | command[0];
 
-	if (panel->bl_config.bl_inverted_dbv)
-		bl_lvl = (((bl_lvl & 0xff) << 8) | (bl_lvl >> 8));
+	//N19 code for HQ-382380 by zhaobeidou at 2024/04/25 start
+	if (last_level == 307 && first_startup_panel_n19_36_02) {
+		first_startup_panel_n19_36_02 = false;
+	}
+	//N19 code for HQ-382380 by zhaobeidou at 2024/04/25 end
 
+	pr_info("%s:last_bl_level=%d, brightness = %d, bl_lvl = 0x%04x(%d)\n", __func__, last_level, brightness, bl_lvl, brightness_store);
+	/* N19 code for HQ-368050 by zhangyundan at 2024/01/29 end */
 	if (panel->bl_config.bl_dcs_subtype)
 		rc = mipi_dsi_dcs_subtype_set_display_brightness(dsi, bl_lvl,
 						panel->bl_config.bl_dcs_subtype);
@@ -596,10 +690,12 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 
 	if (unlikely(panel->bl_config.lp_mode))
 		dsi->mode_flags = mode_flags;
-
+	/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 start */
+	last_level = brightness;
+	/* N19 code for HQ-365143 by zhangbyundan at 2024/01/11 end */
 	return rc;
 }
-
+/* N19 code for HQ-354981 by zhangyundan at 2023/12/19 end */
 static int dsi_panel_update_pwm_backlight(struct dsi_panel *panel,
 	u32 bl_lvl)
 {
@@ -666,6 +762,20 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 		break;
 	case DSI_BACKLIGHT_DCS:
 		rc = dsi_panel_update_backlight(panel, bl_lvl);
+		//N19 code for HQ-382380 by zhaobeidou at 2024/04/25 start
+		if (is_panel_n19_36_02_0a && !first_startup_panel_n19_36_02) {
+			if (bl_lvl > 0) {
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_SCREEN_ON);
+				if (rc)
+					DSI_ERR("[%s] failed to send DSI_CMD_SET_SCREEN_ON cmd, rc=%d\n",panel->name, rc);
+			}
+			if (bl_lvl < 1) {
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_SCREEN_OFF);
+				if (rc)
+					DSI_ERR("[%s] failed to send DSI_CMD_SET_SCREEN_OFF cmd, rc=%d\n",panel->name, rc);
+            }
+		}
+		//N19 code for HQ-382380 by zhaobeidou at 2024/04/25 end
 		break;
 	case DSI_BACKLIGHT_EXTERNAL:
 		break;
@@ -1923,6 +2033,16 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-panel-on-command",
 	"qcom,mdss-dsi-pre-off-command",
 	"qcom,mdss-dsi-off-command",
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 start */
+	"qcom,mdss-dsi-cabc-ui-on-command",
+	"qcom,mdss-dsi-cabc-still-on-command",
+	"qcom,mdss-dsi-cabc-movie-on-command",
+	"qcom,mdss-dsi-cabc-off-command",
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 end */
+/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 start */
+	"qcom,mdss-dsi-screen-off-command",
+/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 end */
+	"qcom,mdss-dsi-screen-on-command",
 	"qcom,mdss-dsi-post-off-command",
 	"qcom,mdss-dsi-pre-res-switch",
 	"qcom,mdss-dsi-res-switch",
@@ -1941,6 +2061,9 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command",
 	"qcom,mdss-dsi-qsync-on-commands",
 	"qcom,mdss-dsi-qsync-off-commands",
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+	"qcom,proximity_pre-off-command",
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1951,6 +2074,16 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-on-command-state",
 	"qcom,mdss-dsi-pre-off-command-state",
 	"qcom,mdss-dsi-off-command-state",
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 start */
+	"qcom,mdss-dsi-cabc-ui-on-command-state",
+	"qcom,mdss-dsi-cabc-still-on-command-state",
+	"qcom,mdss-dsi-cabc-movie-on-command-state",
+	"qcom,mdss-dsi-cabc-off-command-state",
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 end */
+/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 start */
+	"qcom,mdss-dsi-screen-off-command-state",
+/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 end */
+	"qcom,mdss-dsi-screen-on-command-state",
 	"qcom,mdss-dsi-post-off-command-state",
 	"qcom,mdss-dsi-pre-res-switch-state",
 	"qcom,mdss-dsi-res-switch-state",
@@ -1969,6 +2102,9 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command-state",
 	"qcom,mdss-dsi-qsync-on-commands-state",
 	"qcom,mdss-dsi-qsync-off-commands-state",
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+	"qcom,proximity_pre-off-command-state",
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
 };
 
 int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -4376,6 +4512,8 @@ int dsi_panel_pre_prepare(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	pr_info("%s: entry\n", __func__);
+
 	mutex_lock(&panel->panel_lock);
 
 	/* If LP11_INIT is set, panel will be powered up during prepare() */
@@ -4533,6 +4671,12 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 		DSI_ERR("invalid params\n");
 		return -EINVAL;
 	}
+
+	pr_info("%s: entry\n", __func__);
+#if IS_ENABLED(CONFIG_XIAOMI_PANEL_NOTIFIER)
+	g_notify_data.blank = XIAOMI_PANEL_BLANK_UNBLANK;
+	xiaomi_panel_notifier_call_chain(XIAOMI_PANEL_EARLY_EVENT_BLANK, &g_notify_data);
+#endif
 
 	mutex_lock(&panel->panel_lock);
 
@@ -4796,7 +4940,64 @@ int dsi_panel_switch_cmd_mode_in(struct dsi_panel *panel)
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 start */
+static int panel_disp_param_send_lock(struct dsi_panel *panel, int param)
+{
+	int rc = 0;
+	uint32_t temp = 0;
 
+	if (!panel) {
+		DSI_ERR("Panel is NULL!\n");
+		return -EINVAL;
+	}
+	mutex_lock(&panel->panel_lock);
+	if (!panel->panel_initialized) {
+		pr_err("[drm] panel not ready!\n");
+		mutex_unlock(&panel->panel_lock);
+		return rc;
+	}
+	pr_info("[drm] param_type=%d\n", param);
+	temp = param & 0x00000F00;
+	switch (temp) {
+	case DISPPARAM_CABCUI_ON:
+		pr_info("[drm] cabc ui on\n");
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_CABC_UI_ON);
+		break;
+	case DISPPARAM_CABCSTILL_ON:
+		pr_info("[drm] cabc still on\n");
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_CABC_STILL_ON);
+		break;
+	case DISPPARAM_CABCMOVIE_ON:
+		pr_info("[drm] cabc movie on\n");
+		dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_CABC_MOVIE_ON);
+		break;
+	case DISPPARAM_CABC_OFF:
+		pr_info("[drm] cabc off\n");
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_CABC_OFF);
+		break;
+	default:
+		pr_info("[drm] unknown cabc mode type:0x%x\n", temp);
+		break;
+	}
+	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+/* N19 code fot HQ-351911 by zhangyundan at 2024/01/11 end */
+int panel_disp_param_send(struct dsi_display *display, int param_type)
+{
+	int rc = 0;
+	struct dsi_panel *panel = NULL;
+	struct drm_device *drm_dev = NULL;
+	if (!display || !display->panel || !display->drm_dev) {
+		pr_err("invalid display/panel/drm_dev\n");
+		return -EINVAL;
+	}
+	panel = display->panel;
+	drm_dev = display->drm_dev;
+	rc = panel_disp_param_send_lock(panel, param_type);
+	return rc;
+}
+/* N19 code for HQ-354495 by zhangyundan at 2023/12/29 end */
 int dsi_panel_switch(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4874,6 +5075,12 @@ int dsi_panel_enable(struct dsi_panel *panel)
 
 error:
 	mutex_unlock(&panel->panel_lock);
+
+#if IS_ENABLED(CONFIG_XIAOMI_PANEL_NOTIFIER)
+	g_notify_data.blank = XIAOMI_PANEL_BLANK_UNBLANK;
+	xiaomi_panel_notifier_call_chain(XIAOMI_PANEL_EVENT_BLANK, &g_notify_data);
+#endif
+
 	return rc;
 }
 
@@ -4885,6 +5092,8 @@ int dsi_panel_post_enable(struct dsi_panel *panel)
 		DSI_ERR("invalid params\n");
 		return -EINVAL;
 	}
+
+	pr_info("%s: entry\n", __func__);
 
 	mutex_lock(&panel->panel_lock);
 
@@ -4907,6 +5116,8 @@ int dsi_panel_pre_disable(struct dsi_panel *panel)
 		DSI_ERR("invalid params\n");
 		return -EINVAL;
 	}
+
+	pr_info("%s: entry\n", __func__);
 
 	mutex_lock(&panel->panel_lock);
 
@@ -4934,11 +5145,47 @@ int dsi_panel_disable(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
-	mutex_lock(&panel->panel_lock);
+#if IS_ENABLED(CONFIG_XIAOMI_PANEL_NOTIFIER)
+	g_notify_data.blank = XIAOMI_PANEL_BLANK_POWERDOWN;
+	xiaomi_panel_notifier_call_chain(XIAOMI_PANEL_EARLY_EVENT_BLANK, &g_notify_data);
+#endif
 
+	mutex_lock(&panel->panel_lock);
 	/* Avoid sending panel off commands when ESD recovery is underway */
 	if (!atomic_read(&panel->esd_recovery_pending)) {
 		/*
+		 * Need to set IBB/AB regulator mode to STANDBY,
+		 * if panel is going off from AOD mode.
+		 */
+		if (dsi_panel_is_type_oled(panel) &&
+			(panel->power_mode == SDE_MODE_DPMS_LP1 ||
+			panel->power_mode == SDE_MODE_DPMS_LP2))
+			dsi_pwr_panel_regulator_mode_set(&panel->power_info,
+				"ibb", REGULATOR_MODE_STANDBY);
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+		pr_info("[LCD]%s:tp_promixity_en_init_power enable is %d\n",__func__,touch_priximity_enable);
+		if (touch_priximity_enable){
+			if (is_panel_n19_36_02_0a) {
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_STE_PROXIMITY_OFF);
+			}
+		} else {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_OFF);
+		}
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
+		if (rc) {
+			/*
+			 * Sending panel off commands may fail when  DSI
+			 * controller is in a bad state. These failures can be
+			 * ignored since controller will go for full reset on
+			 * subsequent display enable anyway.
+			 */
+			pr_warn_ratelimited("[%s] failed to send DSI_CMD_SET_OFF cmds, rc=%d\n",
+					panel->name, rc);
+			rc = 0;
+		}
+	/* N19 code edit for HQ-373894 by p-zhangyundan at 2024/2/26 start */
+	} else if  (atomic_read(&panel->esd_recovery_pending) && is_panel_n19_36_02_0a) {
+		 /*
 		 * Need to set IBB/AB regulator mode to STANDBY,
 		 * if panel is going off from AOD mode.
 		 */
@@ -4960,6 +5207,7 @@ int dsi_panel_disable(struct dsi_panel *panel)
 			rc = 0;
 		}
 	}
+	/* N19 code edit for HQ-373894 by p-zhangyundan at 2024/2/26 end */
 	panel->panel_initialized = false;
 	panel->power_mode = SDE_MODE_DPMS_OFF;
 
@@ -4975,6 +5223,8 @@ int dsi_panel_unprepare(struct dsi_panel *panel)
 		DSI_ERR("invalid params\n");
 		return -EINVAL;
 	}
+
+	pr_info("%s: entry\n", __func__);
 
 	mutex_lock(&panel->panel_lock);
 
@@ -4999,6 +5249,8 @@ int dsi_panel_post_unprepare(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	pr_info("%s: entry\n", __func__);
+
 	mutex_lock(&panel->panel_lock);
 
 	rc = dsi_panel_power_off(panel);
@@ -5007,7 +5259,286 @@ int dsi_panel_post_unprepare(struct dsi_panel *panel)
 		       panel->name, rc);
 		goto error;
 	}
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 start */
+	if (touch_priximity_enable || touch_gesture_enable) {
+		pr_info("[LCD]%s:touch_promixity_enable or touch gesture enable\n",__func__);
+	} else {
+#if IS_ENABLED(CONFIG_OCP2131_BIAS)
+	ocp2131_disable();
+#endif
+	}
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 end */
 error:
 	mutex_unlock(&panel->panel_lock);
+
+#if IS_ENABLED(CONFIG_XIAOMI_PANEL_NOTIFIER)
+	g_notify_data.blank = XIAOMI_PANEL_BLANK_POWERDOWN;
+	xiaomi_panel_notifier_call_chain(XIAOMI_PANEL_EVENT_BLANK, &g_notify_data);
+#endif
+
 	return rc;
 }
+/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 start */
+static int dsi_panel_write_cmd_set(struct dsi_panel *panel,
+    			struct dsi_panel_cmd_set *cmd_sets)
+{
+    int rc = 0, i = 0;
+    ssize_t len = 0;
+    struct dsi_cmd_desc *cmds;
+    u32 count = 0;
+    enum dsi_cmd_set_state state;
+    struct dsi_display_mode *mode;
+    const struct mipi_dsi_host_ops *ops = panel->host->ops;
+    if (!panel || !panel->cur_mode || !cmd_sets)
+    	return -EINVAL;
+    mode = panel->cur_mode;
+    cmds = cmd_sets->cmds;
+    count = cmd_sets->count;
+    state = cmd_sets->state;
+    if (count == 0) {
+    	pr_debug("[%s] No commands to be sent for state\n", panel->name);
+    	goto error;
+    }
+    for (i = 0; i < count; i++) {
+    	if (state == DSI_CMD_SET_STATE_LP)
+    		cmds->msg.flags |= MIPI_DSI_MSG_USE_LPM;
+    	if (cmds->last_command)
+    		cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+    	len = ops->transfer(panel->host, &cmds->msg);
+    	if (len < 0) {
+    		rc = len;
+    		pr_err("failed to set cmds, rc=%d\n", rc);
+    		goto error;
+    	}
+    	if (cmds->post_wait_ms)
+    		usleep_range(cmds->post_wait_ms*1000,
+    				((cmds->post_wait_ms*1000)+10));
+    	cmds++;
+    }
+error:
+    return rc;
+}
+static int dsi_panel_read_cmd_set(struct dsi_panel *panel,
+    			struct dsi_read_config *read_config)
+{
+    struct mipi_dsi_host *host;
+    struct dsi_display *display;
+    struct dsi_display_ctrl *ctrl;
+    struct dsi_cmd_desc *cmds;
+    int i, rc = 0, count = 0;
+    u32 flags = 0;
+    if (panel == NULL || read_config == NULL)
+    	return -EINVAL;
+    host = panel->host;
+    if (host) {
+    	display = to_dsi_display(host);
+    	if (display == NULL)
+    		return -EINVAL;
+    } else
+    	return -EINVAL;
+    if (!panel->panel_initialized) {
+    	pr_info("Panel not initialized\n");
+    	return -EINVAL;
+    }
+    if (!read_config->enabled) {
+    	pr_info("read operation was not permitted\n");
+    	return -EPERM;
+    }
+    dsi_display_clk_ctrl(display->dsi_clk_handle,
+    	DSI_ALL_CLKS, DSI_CLK_ON);
+    ctrl = &display->ctrl[display->cmd_master_idx];
+    rc = dsi_display_cmd_engine_enable(display);
+    if (rc) {
+    	pr_err("cmd engine enable failed\n");
+    	rc = -EPERM;
+    	goto exit_ctrl;
+    }
+    if (display->tx_cmd_buf == NULL) {
+    	rc = dsi_host_alloc_cmd_tx_buffer(display);
+    	if (rc) {
+    		pr_err("failed to allocate cmd tx buffer memory\n");
+    		goto exit;
+    	}
+    }
+    count = read_config->read_cmd.count;
+    cmds = read_config->read_cmd.cmds;
+    if (cmds->last_command) {
+    	cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+    	flags |= DSI_CTRL_CMD_LAST_COMMAND;
+    }
+    flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ |
+    	  DSI_CTRL_CMD_CUSTOM_DMA_SCHED);
+    memset(read_config->rbuf, 0x0, sizeof(read_config->rbuf));
+    cmds->msg.rx_buf = read_config->rbuf;
+    cmds->msg.rx_len = read_config->cmds_rlen;
+	cmds->ctrl_flags = flags;
+    rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, cmds);
+    if (rc <= 0) {
+    	pr_err("rx cmd transfer failed rc=%d\n", rc);
+    	goto exit;
+    }
+    for (i = 0; i < read_config->cmds_rlen; i++) //debug
+    	pr_err("0x%x ", read_config->rbuf[i]);
+    pr_info("\n");
+exit:
+    dsi_display_cmd_engine_disable(display);
+exit_ctrl:
+    dsi_display_clk_ctrl(display->dsi_clk_handle,
+    	DSI_ALL_CLKS, DSI_CLK_OFF);
+    return rc;
+}
+ssize_t dsi_panel_mipi_reg_write(struct dsi_panel *panel,
+    			char *buf, size_t count)
+{
+    struct dsi_panel_cmd_set cmd_sets = {0};
+    int retval = 0, dlen = 0;
+    u32 packet_count = 0;
+    char *token, *input_copy, *input_dup = NULL;
+    const char *delim = " ";
+    char *buffer = NULL;
+    u32 buf_size = 0;
+    u32 tmp_data = 0;
+    pr_info("%s start.\n", __func__);
+    mutex_lock(&panel->panel_lock);
+    if (!panel || !panel->panel_initialized) {
+    	pr_err("%s [LCD] panel not ready!\n", __func__);
+    	retval = -EAGAIN;
+    	goto exit_unlock;
+    }
+    input_copy = kstrdup(buf, GFP_KERNEL);
+    if (!input_copy) {
+    	retval = -ENOMEM;
+    	goto exit_unlock;
+    }
+    input_dup = input_copy;
+    /* removes leading and trailing whitespace from input_copy */
+    input_copy = strim(input_copy);
+    /* Split a string into token */
+    token = strsep(&input_copy, delim);
+    if (token) {
+    	retval = kstrtoint(token, 10, &tmp_data);
+    	if (retval) {
+    		pr_err("%s input buffer conversion failed\n", __func__);
+    		goto exit_free0;
+    	}
+    	g_dsi_read_cfg.enabled= !!tmp_data;
+    }
+    /* Removes leading whitespace from input_copy */
+    if (input_copy)
+    	input_copy = skip_spaces(input_copy);
+    else
+    	goto exit_free0;
+    token = strsep(&input_copy, delim);
+    if (token) {
+    	retval = kstrtoint(token, 10, &tmp_data);
+    	if (retval) {
+    		pr_err("%s input buffer conversion failed\n", __func__);
+    		goto exit_free0;
+    	}
+    	if (tmp_data > sizeof(g_dsi_read_cfg.rbuf)) {
+    		pr_err("%s read size exceeding the limit %d\n", __func__,
+    				sizeof(g_dsi_read_cfg.rbuf));
+    		goto exit_free0;
+    	}
+    	g_dsi_read_cfg.cmds_rlen = tmp_data;
+    }
+    /* Removes leading whitespace from input_copy */
+    if (input_copy)
+    	input_copy = skip_spaces(input_copy);
+    else
+    	goto exit_free0;
+    buffer = kzalloc(strlen(input_copy), GFP_KERNEL);
+    if (!buffer) {
+    	retval = -ENOMEM;
+    	goto exit_free0;
+    }
+    token = strsep(&input_copy, delim);
+    while (token) {
+    	retval = kstrtoint(token, 16, &tmp_data);
+    	if (retval) {
+    		pr_err("%s input buffer conversion failed\n", __func__);
+    		goto exit_free1;
+    	}
+    	buffer[buf_size++] = (tmp_data & 0xff);
+    	/* Removes leading whitespace from input_copy */
+    	if (input_copy) {
+    		input_copy = skip_spaces(input_copy);
+    		token = strsep(&input_copy, delim);
+    	} else {
+    		token = NULL;
+    	}
+    }
+    retval = dsi_panel_get_cmd_pkt_count(buffer, buf_size, &packet_count);
+    if (!packet_count) {
+    	pr_err("%s get pkt count failed!\n", __func__);
+    	goto exit_free1;
+    }
+    retval = dsi_panel_alloc_cmd_packets(&cmd_sets, packet_count);
+    if (retval) {
+    	pr_err("%s failed to allocate cmd packets, ret=%d\n",__func__, retval);
+    	goto exit_free1;
+    }
+    retval = dsi_panel_create_cmd_packets(buffer, dlen, packet_count,
+    					  cmd_sets.cmds);
+    if (retval) {
+    	pr_err("%s failed to create cmd packets, ret=%d\n", __func__, retval);
+    	goto exit_free2;
+    }
+    if (g_dsi_read_cfg.enabled) {
+    	g_dsi_read_cfg.read_cmd = cmd_sets;
+    	retval = dsi_panel_read_cmd_set(panel, &g_dsi_read_cfg);
+    	if (retval <= 0) {
+    		pr_err("%s[%s]failed to read cmds, rc=%d\n",__func__, panel->name, retval);
+    		goto exit_free3;
+    	}
+    } else {
+    	g_dsi_read_cfg.read_cmd = cmd_sets;
+    	retval = dsi_panel_write_cmd_set(panel, &cmd_sets);
+    	if (retval) {
+    		pr_err("%s [%s] failed to send cmds, rc=%d\n",__func__, panel->name, retval);
+    		goto exit_free3;
+    	}
+    }
+    retval = count;
+    pr_info("%s end. retval[%d]\n", __func__, retval);
+exit_free3:
+    dsi_panel_destroy_cmd_packets(&cmd_sets);
+exit_free2:
+    dsi_panel_dealloc_cmd_packets(&cmd_sets);
+exit_free1:
+    kfree(buffer);
+exit_free0:
+    kfree(input_dup);
+exit_unlock:
+    mutex_unlock(&panel->panel_lock);
+    if (retval == 0)
+        retval = -EINVAL;
+    return retval;
+}
+ssize_t dsi_panel_mipi_reg_read(struct dsi_panel *panel, char *buf)
+{
+    int i = 0;
+    ssize_t count = 0;
+    pr_info("%s start.\n", __func__);
+    mutex_lock(&panel->panel_lock);
+    if (!panel) {
+    	mutex_unlock(&panel->panel_lock);
+    	return -EAGAIN;
+    }
+
+    if (g_dsi_read_cfg.enabled) {
+    	for (i = 0; i < g_dsi_read_cfg.cmds_rlen; i++) {
+    		if (i == g_dsi_read_cfg.cmds_rlen - 1) {
+    			count += snprintf(buf + count, PAGE_SIZE - count, "0x%02x\n",
+    			     g_dsi_read_cfg.rbuf[i]);
+    		} else {
+    			count += snprintf(buf + count, PAGE_SIZE - count, "0x%02x ",
+    			     g_dsi_read_cfg.rbuf[i]);
+    		}
+    	}
+    }
+    mutex_unlock(&panel->panel_lock);
+    pr_info("%s end. enabled[%d] cmds_rlen[%d] count[%d]\n", __func__, g_dsi_read_cfg.enabled, g_dsi_read_cfg.cmds_rlen, count);
+    return count;
+}
+/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 end */

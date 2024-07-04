@@ -21,7 +21,9 @@
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
 #include "dsi_parser.h"
-
+/*N19 code for HQ-355104 by zhaobeidou at 2023/12/19 start*/
+#include <linux/hqsysfs.h>
+/*N19 code for HQ-355104 by zhaobeidou at 2023/12/19 end*/
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
 
@@ -36,10 +38,30 @@
 #define MAX_TE_SOURCE_ID  2
 
 #define SEC_PANEL_NAME_MAX_LEN  256
+/* N19 code for HQHW-5919 by p-zhangyundan at 2023/03/13 start */
+#define PMIC_PWRKEY_CLOSE_BRIGHNESS 1
+struct dsi_display *global_dsi_display = NULL;
+typedef int (*mi_display_pwrkey_callback)(int);
+extern void mi_display_pwrkey_callback_set(mi_display_pwrkey_callback);
+/* N19 code for HQHW-5919 by p-zhangyundan at 2023/03/13 end */
+extern bool is_panel_n19_36_02_0a;
 
 u8 dbgfs_tx_cmd_buf[SZ_4K];
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+bool touch_priximity_enable = false;
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
 static char dsi_display_primary[MAX_CMDLINE_PARAM_LEN];
 static char dsi_display_secondary[MAX_CMDLINE_PARAM_LEN];
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 start */
+bool touch_gesture_enable = false;
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 end */
+/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 start */
+int n19_panel_id = 0;
+/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 end */
+//N19 code for HQ-382380 by zhaobeidou at 2024/04/25 start
+bool first_startup_panel_n19_36_02 = false;
+//N19 code for HQ-382380 by zhaobeidou at 2024/04/25 end
+
 static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY] = {
 	{.boot_param = dsi_display_primary},
 	{.boot_param = dsi_display_secondary},
@@ -51,7 +73,12 @@ static const struct of_device_id dsi_display_dt_match[] = {
 	{.compatible = "qcom,dsi-display"},
 	{}
 };
-
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+#if IS_ENABLED(CONFIG_XIAOMI_TOUCH_NOTIFIER)
+static int xiaomi_touch_notifier_callback(struct notifier_block *self,
+					unsigned long event, void *data);
+#endif
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
 bool is_skip_op_required(struct dsi_display *display)
 {
 	if (!display)
@@ -273,7 +300,7 @@ error:
 	return rc;
 }
 
-static int dsi_display_cmd_engine_enable(struct dsi_display *display)
+int dsi_display_cmd_engine_enable(struct dsi_display *display)
 {
 	int rc = 0;
 	int i;
@@ -315,7 +342,7 @@ done:
 	return rc;
 }
 
-static int dsi_display_cmd_engine_disable(struct dsi_display *display)
+int dsi_display_cmd_engine_disable(struct dsi_display *display)
 {
 	int rc = 0;
 	int i;
@@ -496,7 +523,7 @@ error:
 }
 
 /* Allocate memory for cmd dma tx buffer */
-static int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
+int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
 {
 	int rc = 0, cnt = 0;
 	struct dsi_display_ctrl *display_ctrl;
@@ -3437,13 +3464,13 @@ int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd)
 	}
 
 	display = to_dsi_display(host);
-
+/* N19 code edit for HQ-373894 by p-zhangyundan at 2024/2/26 start */
 	/* Avoid sending DCS commands when ESD recovery is pending */
-	if (atomic_read(&display->panel->esd_recovery_pending)) {
+	if (atomic_read(&display->panel->esd_recovery_pending) && (is_panel_n19_36_02_0a == false)) {
 		DSI_DEBUG("ESD recovery pending\n");
 		return 0;
 	}
-
+/* N19 code edit for HQ-373894 by p-zhangyundan at 2024/2/26 end */
 	rc = dsi_display_wake_up(display);
 	if (rc) {
 		DSI_ERR("[%s] failed to wake up display, rc=%d\n", display->name, rc);
@@ -5049,37 +5076,37 @@ static int dsi_display_get_dfps_timing(struct dsi_display *display,
 	timing = &per_ctrl_mode.timing;
 
 	switch (dfps_caps.type) {
-	case DSI_DFPS_IMMEDIATE_VFP:
-		rc = dsi_display_dfps_calc_front_porch(
-				curr_refresh_rate,
-				timing->refresh_rate,
-				dsi_h_total_dce(timing),
-				DSI_V_TOTAL(timing),
-				timing->v_front_porch,
-				&adj_mode->timing.v_front_porch);
-		SDE_EVT32(SDE_EVTLOG_FUNC_CASE1, DSI_DFPS_IMMEDIATE_VFP,
-			curr_refresh_rate, timing->refresh_rate,
-			timing->v_front_porch, adj_mode->timing.v_front_porch);
-		break;
+		case DSI_DFPS_IMMEDIATE_VFP:
+			rc = dsi_display_dfps_calc_front_porch(
+					curr_refresh_rate,
+					timing->refresh_rate,
+					dsi_h_total_dce(timing),
+					DSI_V_TOTAL(timing),
+					timing->v_front_porch,
+					&adj_mode->timing.v_front_porch);
+			SDE_EVT32(SDE_EVTLOG_FUNC_CASE1, DSI_DFPS_IMMEDIATE_VFP,
+				curr_refresh_rate, timing->refresh_rate,
+				timing->v_front_porch, adj_mode->timing.v_front_porch);
+			break;
 
-	case DSI_DFPS_IMMEDIATE_HFP:
-		rc = dsi_display_dfps_calc_front_porch(
-				curr_refresh_rate,
-				timing->refresh_rate,
-				DSI_V_TOTAL(timing),
-				dsi_h_total_dce(timing),
-				timing->h_front_porch,
-				&adj_mode->timing.h_front_porch);
-		SDE_EVT32(SDE_EVTLOG_FUNC_CASE2, DSI_DFPS_IMMEDIATE_HFP,
-			curr_refresh_rate, timing->refresh_rate,
-			timing->h_front_porch, adj_mode->timing.h_front_porch);
-		if (!rc)
-			adj_mode->timing.h_front_porch *= display->ctrl_count;
-		break;
+		case DSI_DFPS_IMMEDIATE_HFP:
+			rc = dsi_display_dfps_calc_front_porch(
+					curr_refresh_rate,
+					timing->refresh_rate,
+					DSI_V_TOTAL(timing),
+					dsi_h_total_dce(timing),
+					timing->h_front_porch,
+					&adj_mode->timing.h_front_porch);
+			SDE_EVT32(SDE_EVTLOG_FUNC_CASE2, DSI_DFPS_IMMEDIATE_HFP,
+				curr_refresh_rate, timing->refresh_rate,
+				timing->h_front_porch, adj_mode->timing.h_front_porch);
+			if (!rc)
+				adj_mode->timing.h_front_porch *= display->ctrl_count;
+			break;
 
-	default:
-		DSI_ERR("Unsupported DFPS mode %d\n", dfps_caps.type);
-		rc = -ENOTSUPP;
+		default:
+			DSI_ERR("Unsupported DFPS mode %d\n", dfps_caps.type);
+			rc = -ENOTSUPP;
 	}
 
 	return rc;
@@ -5996,7 +6023,159 @@ static void dsi_display_firmware_display(const struct firmware *fw,
 
 	DSI_DEBUG("success\n");
 }
+/* N19 code for HQ-354495 by zhangyundan at 2023/12/29 start */
+int panel_disp_param_send(struct dsi_display *display, int param);
+static ssize_t disp_param_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc = 0;
+	int param = 0;
+	struct dsi_display *display = dev_get_drvdata(dev);
+	if (display == NULL || count == 0) {
+		DSI_ERR("display is NULL or count is error!\n");
+		return -ENODEV; 
+	}
+	sscanf(buf, "0x%x", &param);
+	rc = panel_disp_param_send(display, param);
+	if (rc) {
+		pr_err("%s: line %d: DSI disp param send failed, rc=%d\n",
+		       __func__, __LINE__, rc);
+	}
+	return count;
+}
 
+static ssize_t brightness_clone_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct dsi_display *display = dev_get_drvdata(dev);
+	if (display == NULL) {
+		DSI_ERR("display is NULL!\n");
+		return -ENODEV; 
+	}
+	return sprintf(buf, "%d\n", display->brightness_clone);
+}
+static ssize_t brightness_clone_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc = 0;
+	struct dsi_display *display = dev_get_drvdata(dev);
+	unsigned long brightness = 0;
+	char *envp[2] = {0};
+	if (display == NULL || count == 0 || dev == NULL) {
+		DSI_ERR("display/dev is NULL or count is error!\n");
+		return -ENODEV; 
+	}
+	rc = kstrtoul(buf, 0, &brightness);
+	if(rc)
+		return rc;
+	display->brightness_clone = (int)brightness;
+	envp[0] = "SOURCE=sysfs";
+	envp[1] = NULL;
+	kobject_uevent_env(&dev->kobj, KOBJ_CHANGE, envp);
+	sysfs_notify(&dev->kobj, NULL, "brightness_clone");
+	return count;
+}
+static ssize_t panel_info_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct dsi_display *display = dev_get_drvdata(dev);
+	if ((display == NULL) || (display->panel == NULL)) {
+		DSI_ERR("display is NULL!\n");
+		return -ENODEV; 
+	}
+	pr_info("%s: line %d: panel name[%s]\n", __func__, __LINE__, display->panel->name);
+	return snprintf(buf, PAGE_SIZE, display->panel->name);
+}
+
+/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 start */
+static ssize_t mipi_reg_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct dsi_display *display = dev_get_drvdata(dev);
+	char buf_tmp[64] = {0};
+	int rc = 0;
+  	if ((display == NULL) || (display->panel == NULL)) {
+		DSI_ERR("display is NULL!\n");
+		return -ENODEV;
+	}
+	memset(buf_tmp, 0, 64);
+	rc = dsi_panel_mipi_reg_read(display->panel, buf_tmp);
+	pr_info("%s: line %d: mipi reg read compelete, rc=%d\n",
+	       __func__, __LINE__, rc);
+	if (rc > 0)
+		memcpy(buf, buf_tmp, rc);
+	return rc;
+}
+static ssize_t mipi_reg_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dsi_display *display = dev_get_drvdata(dev);
+	int rc = 0;
+	if ((display == NULL) || (display->panel == NULL)) {
+		DSI_ERR("display is NULL!\n");
+		return -ENODEV;
+	}
+	rc = dsi_panel_mipi_reg_write(display->panel, (char *)buf ,count);
+	pr_info("%s: line %d: mipi reg write compelete, rc=%d\n",
+	       __func__, __LINE__, rc);
+	return rc;
+}
+/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 end */
+static DEVICE_ATTR_RW(brightness_clone);
+static DEVICE_ATTR_WO(disp_param);
+static DEVICE_ATTR_RO(panel_info);
+static DEVICE_ATTR_RW(mipi_reg);
+/* N19 code for HQ-354495 by zhangyundan at 2023/12/29 end */
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 start */
+#if IS_ENABLED(CONFIG_XIAOMI_TOUCH_NOTIFIER)
+static int xiaomi_touch_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
+{
+	struct xiaomi_touch_notify_data  *evdata = data;
+
+	DSI_INFO("[LCD]touch priximity enable is %d,touch gesture enable is %d\n",evdata->ps_enable,evdata->gesture_enable);
+	if(event == XIAOMI_TOUCH_SENSOR_EVENT_PS_SWITCH) {
+		if (evdata->ps_enable == XIAOMI_TOUCH_SENSOR_PS_DISABLE) {
+			touch_priximity_enable = false;
+		} else if (evdata->ps_enable == XIAOMI_TOUCH_SENSOR_PS_ENABLE) {
+			touch_priximity_enable = true;
+		}
+	}
+	if(event == XIAOMI_TOUCH_GESTURE_EVENT_SWITCH) {
+		if (evdata->gesture_enable == XIAOMI_TOUCH_GESTURE_DISABLE) {
+			touch_gesture_enable = false;
+		} else if (evdata->gesture_enable == XIAOMI_TOUCH_GESTURE_ENABLE) {
+			touch_gesture_enable = true;
+		}
+	}
+	return 0;
+}
+#endif
+/* N19 code for HQ-351921 by liaoxianguo at 2024/1/2 end */
+/* N19 code for HQHW-5919 by p-zhangyundan at 2023/03/14 start */
+int mi_display_powerkey_callback(int status)
+{
+	struct dsi_display *dsi_display = global_dsi_display;
+	struct dsi_panel *panel = NULL;
+	int rc = 0;
+
+	DSI_INFO("mi_display_powerkey_callback entry\n");
+	if (!dsi_display || !dsi_display->panel){
+		DSI_ERR("invalid dsi_display  or panel ptr\n");
+		return -EINVAL;
+	}
+	panel = dsi_display->panel;
+	if(status == PMIC_PWRKEY_CLOSE_BRIGHNESS){
+		/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 start */
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_SCREEN_OFF);
+		/* N19 code fot HQ-376249 by zhangyundan at 2024/03/20 end */
+		if (rc) {
+			DSI_ERR("[%s] failed to send DSI_CMD_SET_SCREEN_OFF cmds, rc=%d\n",
+			       panel->name, rc);
+		}
+	}
+	return 0;
+}
+/* N19 code for HQHW-5919 by p-zhangyundan at 2023/03/14 end */
 int dsi_display_dev_probe(struct platform_device *pdev)
 {
 	struct dsi_display *display = NULL;
@@ -6004,7 +6183,7 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 	int rc = 0, index = DSI_PRIMARY;
 	bool firm_req = false;
 	struct dsi_display_boot_param *boot_disp;
-
+	dev_t devno = 0;
 	if (!pdev || !pdev->dev.of_node) {
 		DSI_ERR("pdev not found\n");
 		rc = -ENODEV;
@@ -6069,7 +6248,34 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 	display->panel_node = panel_node;
 	display->pdev = pdev;
 	display->boot_disp = boot_disp;
-
+	pr_info("Display: boot_disp->name:%s\n", boot_disp->name);
+	/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 start */
+	if (strstr(boot_disp->name, "n19_36_02_0a")) {
+		is_panel_n19_36_02_0a = 1;
+		n19_panel_id = PANEL_36_02_0A;
+		first_startup_panel_n19_36_02 = true;//N19 code for HQ-382380 by zhaobeidou at 2024/04/25
+		pr_info("display: is_panel_n19_36_02_0a, first_startup_panel_n19_36_02\n");
+		/*N19 code for HQ-355104 by zhaobeidou at 2023/12/19 start*/
+		if (!hq_regiser_hw_info(HWID_LCM, "Incell,vendor:36,IC:02"))
+			pr_info("Display: boot_disp->name:%s, Incell,vendor:36,IC:02\n", boot_disp->name);
+	} else if (strstr(boot_disp->name, "n19_42_03_0b")) {
+		n19_panel_id = PANEL_42_03_0B;
+		if (!hq_regiser_hw_info(HWID_LCM, "Incell,vendor:42,IC:03"))
+			pr_info("Display: boot_disp->name:%s, Incell,vendor:42,IC:03\n", boot_disp->name);
+		/*N19 code for HQ-355104 by zhaobeidou at 2023/12/19 end*/
+	} else if (strstr(boot_disp->name, "n19_36_02_0c")) {
+		n19_panel_id = PANEL_36_02_0C;
+		is_panel_n19_36_02_0a = 1;
+		first_startup_panel_n19_36_02 = true;//N19 code for HQ-382380 by zhaobeidou at 2024/04/25
+		pr_info("display: is_panel_n19_36_02_0a, first_startup_panel_n19_36_02\n");
+		if (!hq_regiser_hw_info(HWID_LCM, "Incell,vendor:36,IC:02"))
+			pr_info("Display: boot_disp->name:%s, Incell,vendor:36,IC:02\n", boot_disp->name);
+	} else if (strstr(boot_disp->name, "n19_42_03_0d")) {
+		n19_panel_id = PANEL_42_03_0D;
+		if (!hq_regiser_hw_info(HWID_LCM, "Incell,vendor:42,IC:03"))
+			pr_info("Display: boot_disp->name:%s, Incell,vendor:42,IC:03\n", boot_disp->name);
+	}
+	/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 end */
 	dsi_display_parse_cmdline_topology(display, index);
 
 	platform_set_drvdata(pdev, display);
@@ -6079,7 +6285,16 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 		DSI_ERR("resources required for display probe not present: rc=%d\n", rc);
 		goto end;
 	}
-
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+#if IS_ENABLED(CONFIG_XIAOMI_TOUCH_NOTIFIER)
+	display->xiaomi_touch_notif.notifier_call = xiaomi_touch_notifier_callback;
+	rc = xiaomi_touch_notifier_register_client(&display->xiaomi_touch_notif);
+	if (rc) {
+		DSI_ERR("register xiaomi_panel_notif failed. ret=%d\n", rc);
+		goto end;
+	}
+#endif
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
 	/* initialize display in firmware callback */
 	if (!(boot_displays[DSI_PRIMARY].boot_disp_en ||
 			boot_displays[DSI_SECONDARY].boot_disp_en) &&
@@ -6102,7 +6317,71 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 		if (rc)
 			goto end;
 	}
+	/* N19 code for HQ-354495 by zhangyundan at 2023/12/29 start */
+	display->display_class = class_create(THIS_MODULE, "display");
+	if (IS_ERR(display->display_class)) {
+		pr_err("%s: line %d: Unable to create display class, errorno = %ld\n", __func__, __LINE__, PTR_ERR(display->display_class));
+		goto end;
+	} else {
+		pr_info("%s: line %d: Create display class success!\n", __func__, __LINE__);
+	}
+	rc = alloc_chrdev_region(&devno, 0, 1, "backlight_clone");
+	if(rc < 0) {
+		pr_err("Failed to alloc chrdev!\n");
+	}
+	display->backlight_clone_devce = device_create(display->display_class, NULL, devno, NULL, "backlight_clone");
+	if (IS_ERR(display->backlight_clone_devce)) {
+		pr_err("%s: line %d: Unable to create backlight clone device, errorno = %ld\n", __func__, __LINE__, PTR_ERR(display->backlight_clone_devce));
+		goto end;
+	} else {
+		pr_info("%s: line %d: Create backlight clone device success!\n", __func__, __LINE__);
+	}
+	dev_set_drvdata(display->backlight_clone_devce, display);
+	rc = device_create_file(display->backlight_clone_devce, &dev_attr_brightness_clone);
+	if (rc < 0) {
+		pr_err("Failed to create attribute brightness_clone!\n");
+	} else {
+		pr_info("%s: line %d: Device create brightness_clone file success!\n", __func__, __LINE__);
+	}
+	rc = alloc_chrdev_region(&devno, 0, 1, "disp_param");
+	if(rc < 0) {
+		pr_err("Failed to alloc chrdev!\n");
+	}
+	display->disp_param_devce = device_create(display->display_class, NULL, devno, NULL, "disp_param");
+	if (IS_ERR(display->disp_param_devce)) {
+		pr_err("%s: line %d: Unable to create disp_param device, errorno = %ld\n", __func__, __LINE__, PTR_ERR(display->disp_param_devce));
+		goto end;
 
+		
+	} else {
+		pr_info("%s: line %d: Create disp_param device success!\n", __func__, __LINE__);
+	}
+	dev_set_drvdata(display->disp_param_devce, display);
+	rc = device_create_file(display->disp_param_devce, &dev_attr_panel_info);
+	if (rc < 0) {
+		pr_err("Failed to create attribute panel_info!\n");
+	} else {
+		pr_info("%s: line %d: Device create panel_info file success!\n", __func__, __LINE__);
+	}
+	rc = device_create_file(display->disp_param_devce, &dev_attr_disp_param);
+	if (rc < 0) {
+		pr_err("Failed to create attribute disp_param!\n");
+	} else {
+		pr_info("%s: line %d: Device create disp_param file success!\n", __func__, __LINE__);
+	}
+	/* N19 code for HQ-354495 by zhangyundan at 2023/12/29 end */
+ 	/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 start */
+	rc = device_create_file(display->disp_param_devce, &dev_attr_mipi_reg);
+	if (rc < 0) {
+		pr_err("Failed to create attribute disp_param!\n");
+	} else {
+		pr_info("%s: line %d: Device create disp_param file success!\n", __func__, __LINE__);
+	}
+	/* N19 code for HQ-351632 by zhangyundan at 2024/01/16 end */
+	/* N19 code for HQHW-5919 by p-zhangyundan at 2023/03/14 start */
+	global_dsi_display = display;
+	mi_display_pwrkey_callback_set(mi_display_powerkey_callback);
+	/* N19 code for HQHW-5919 by p-zhangyundan at 2023/03/14 end */
 	return 0;
 end:
 	if (display)
@@ -6140,7 +6419,12 @@ int dsi_display_dev_remove(struct platform_device *pdev)
 	}
 
 	(void)_dsi_display_dev_deinit(display);
-
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 start */
+#if IS_ENABLED(CONFIG_XIAOMI_TOUCH_NOTIFIER)
+	if (xiaomi_touch_notifier_unregister_client(&display->xiaomi_touch_notif))
+	DSI_ERR("Error occurred while unregistering xiaomi_panel_notif.\n");
+#endif
+/* N19 code for HQ-357608 by liaoxianguo at 2023/12/29 end */
 	platform_set_drvdata(pdev, NULL);
 	devm_kfree(&pdev->dev, display);
 	return rc;
@@ -7750,13 +8034,11 @@ int dsi_display_set_mode(struct dsi_display *display,
 			goto error;
 		}
 	}
-
 	rc = dsi_display_restore_bit_clk(display, &adj_mode);
 	if (rc) {
 		DSI_ERR("[%s] bit clk rate cannot be restored\n", display->name);
 		goto error;
 	}
-
 	rc = dsi_display_validate_mode_set(display, &adj_mode, flags);
 	if (rc) {
 		DSI_ERR("[%s] mode cannot be set\n", display->name);
@@ -7768,11 +8050,14 @@ int dsi_display_set_mode(struct dsi_display *display,
 		DSI_ERR("[%s] failed to set mode\n", display->name);
 		goto error;
 	}
-
-	DSI_INFO("mdp_transfer_time=%d, hactive=%d, vactive=%d, fps=%d, clk_rate=%llu\n",
-			adj_mode.priv_info->mdp_transfer_time_us,
-			timing.h_active, timing.v_active, timing.refresh_rate,
-			adj_mode.priv_info->clk_rate_hz);
+	/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 start */
+	DSI_INFO("mdp_transfer_time=%d, hactive=%d, hbp=%d , hsw=%d, hfp=%d, hskew=%d, vactive=%d, vbp=%d , vsw=%d, vfp=%d, fps=%d, clk_rate=%u\n",
+		adj_mode.priv_info->mdp_transfer_time_us,
+		timing.h_active,timing.h_back_porch, timing.h_sync_width,  timing.h_front_porch, timing.h_skew,
+		timing.v_active, timing.v_back_porch, timing.v_sync_width,  timing.v_front_porch,
+		timing.refresh_rate,
+		adj_mode.priv_info->clk_rate_hz);
+	/* N19 code for HQ-372718 by p-zhangyundan at 2023/03/01 end */
 	SDE_EVT32(adj_mode.priv_info->mdp_transfer_time_us,
 			timing.h_active, timing.v_active, timing.refresh_rate,
 			adj_mode.priv_info->clk_rate_hz);
