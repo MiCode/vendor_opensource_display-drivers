@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -109,6 +109,7 @@ struct dp_audio;
 struct dp_panel {
 	/* dpcd raw data */
 	u8 dpcd[DP_RECEIVER_CAP_SIZE + DP_RECEIVER_EXT_CAP_SIZE + 1];
+	u8 lttpr_common_caps[DP_LTTPR_COMMON_CAP_SIZE];
 	u8 ds_ports[DP_MAX_DOWNSTREAM_PORTS];
 	u8 dsc_dpcd[DP_RECEIVER_DSC_CAP_SIZE + 1];
 	u8 fec_dpcd;
@@ -202,6 +203,7 @@ struct dp_panel {
 	int (*get_src_crc)(struct dp_panel *dp_panel, u16 *crc);
 	int (*get_sink_crc)(struct dp_panel *dp_panel, u16 *crc);
 	bool (*get_panel_on)(struct dp_panel *dp_panel);
+	void (*set_lttpr_mode)(struct dp_panel *dp_panel, bool is_transparent);
 };
 
 struct dp_tu_calc_input {

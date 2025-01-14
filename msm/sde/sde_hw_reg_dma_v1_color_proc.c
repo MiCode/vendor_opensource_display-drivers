@@ -5410,6 +5410,9 @@ int reg_dmav1_setup_spr_cfg5_params(struct sde_hw_dspp *ctx,
 	SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->spr.base + 0x7C, reg[0]);
 	ctx->spr_cfg_18_default = reg[0];
 
+	//FIXME - Temporarily alter SPR CFG5 via AHB as a work around
+	SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->spr.base + 0x7C, reg[0]);
+
 	return rc;
 }
 

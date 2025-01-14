@@ -23,10 +23,12 @@
 #include "sde_trace.h"
 #include "sde_dbg.h"
 
+
+
 #define KBPS2BPS(x) ((x) * 1000ULL)
 
 /* wait for at most 2 vsync for lowest refresh rate (1hz) */
-#define SDE_MMRM_CB_TIMEOUT_MS		2000
+#define SDE_MMRM_CB_TIMEOUT_MS		100
 #define SDE_MMRM_CB_TIMEOUT_JIFFIES  msecs_to_jiffies( \
 		SDE_MMRM_CB_TIMEOUT_MS)
 
@@ -324,9 +326,11 @@ static int _sde_power_data_bus_set_quota(
 	SDE_ATRACE_BEGIN("msm_bus_scale_req");
 	for (i = 0; i < paths; i++) {
 		if (pdbus->data_bus_hdl[i]) {
+
 			rc = icc_set_bw(pdbus->data_bus_hdl[i],
 					Bps_to_icc(in_ab_quota),
 					Bps_to_icc(in_ib_quota));
+
 			if (rc)
 				goto err;
 		}
@@ -571,8 +575,10 @@ static int sde_power_reg_bus_update(struct sde_power_reg_bus_handle *reg_bus,
 
 	if (reg_bus->reg_bus_hdl) {
 		SDE_ATRACE_BEGIN("msm_bus_scale_req");
+
 		rc = icc_set_bw(reg_bus->reg_bus_hdl, Bps_to_icc(ab_quota),
 				Bps_to_icc(ib_quota));
+
 		SDE_ATRACE_END("msm_bus_scale_req");
 	}
 

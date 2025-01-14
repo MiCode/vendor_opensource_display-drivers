@@ -37,6 +37,7 @@
 #include <linux/msm_ion.h>
 #endif
 
+
 struct sg_table *msm_gem_prime_get_sg_table(struct drm_gem_object *obj)
 {
 	struct msm_gem_object *msm_obj = to_msm_bo(obj);
@@ -123,6 +124,7 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 	int *vmid_list, *perms_list;
 	int nelems = 0, i, ret;
 	unsigned long dma_map_attrs = 0;
+
 
 	if (!dma_buf || !dev->dev_private)
 		return ERR_PTR(-EINVAL);
@@ -239,6 +241,7 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 		sgt = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
 		if (IS_ERR(sgt)) {
 			ret = PTR_ERR(sgt);
+
 			DRM_ERROR("dma_buf_map_attachment failure, err=%d\n", ret);
 			goto fail_detach;
 		}

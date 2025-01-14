@@ -531,8 +531,33 @@ static void _sde_core_uidle_setup_wd(struct sde_kms *kms,
 		uidle->ops.setup_wd_timer(uidle, &wd);
 }
 
+static bool _sde_core_uidle_fal10_override(struct sde_kms *kms,
+	struct drm_crtc *crtc)
+{
+	bool fal10_override, is_vid_mode = false;
+	struct drm_encoder *drm_enc;
+
+	fal10_override = kms->catalog->uidle_cfg.fal10_override;
+	if (!fal10_override)
+		return false;
+
+	drm_for_each_encoder(drm_enc, kms->dev) {
+		if (drm_enc->crtc != crtc)
+			continue;
+
+		if (sde_encoder_check_curr_mode(drm_enc, MSM_DISPLAY_VIDEO_MODE)) {
+			is_vid_mode = true;
+			break;
+		}
+	}
+
+	SDE_EVT32(fal10_override, is_vid_mode);
+
+	return fal10_override && is_vid_mode;
+}
+
 static void _sde_core_uidle_setup_cfg(struct sde_kms *kms,
-	enum sde_uidle_state state)
+	struct drm_crtc *crtc, enum sde_uidle_state state)
 {
 	struct sde_uidle_ctl_cfg cfg;
 	struct sde_hw_uidle *uidle;
@@ -545,6 +570,7 @@ static void _sde_core_uidle_setup_cfg(struct sde_kms *kms,
 		kms->catalog->uidle_cfg.fal10_exit_cnt;
 	cfg.fal10_exit_danger =
 		kms->catalog->uidle_cfg.fal10_exit_danger;
+	cfg.fal10_override = _sde_core_uidle_fal10_override(kms, crtc);
 
 	SDE_DEBUG("fal10_danger:%d fal10_exit_cnt:%d fal10_exit_danger:%d\n",
 		cfg.fal10_danger, cfg.fal10_exit_cnt, cfg.fal10_exit_danger);
@@ -584,7 +610,7 @@ static int _sde_core_perf_enable_uidle(struct sde_kms *kms,
 
 	SDE_EVT32(uidle_state);
 	_sde_core_uidle_setup_wd(kms, enable);
-	_sde_core_uidle_setup_cfg(kms, uidle_state);
+	_sde_core_uidle_setup_cfg(kms, crtc, uidle_state);
 	sde_core_perf_uidle_setup_ctl(crtc, true);
 
 	kms->perf.uidle_enabled = enable;

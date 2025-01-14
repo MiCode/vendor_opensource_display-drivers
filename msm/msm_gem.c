@@ -33,6 +33,7 @@
 #include "msm_mmu.h"
 #include "sde_dbg.h"
 
+
 #define GUARD_BYTES (BIT(8) - 1)
 #define ALIGNED_OFFSET (U32_MAX & ~(GUARD_BYTES))
 
@@ -359,6 +360,7 @@ dma_addr_t msm_gem_get_dma_addr(struct drm_gem_object *obj)
 		if (IS_ERR_OR_NULL(sgt)) {
 			DRM_ERROR("dma_buf_map_attachment failure, err=%ld\n",
 					PTR_ERR(sgt));
+
 			return 0;
 		}
 		msm_obj->sgt = sgt;
@@ -1172,6 +1174,7 @@ int msm_gem_delayed_import(struct drm_gem_object *obj)
 	sgt = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
 	if (IS_ERR(sgt)) {
 		ret = PTR_ERR(sgt);
+
 		DRM_ERROR("dma_buf_map_attachment failure, err=%d\n",
 				ret);
 		goto fail_import;

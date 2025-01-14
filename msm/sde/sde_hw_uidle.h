@@ -37,6 +37,7 @@ struct sde_uidle_ctl_cfg {
 	u32 fal10_exit_cnt;
 	u32 fal10_exit_danger;
 	u32 fal10_danger;
+	bool fal10_override;
 	enum sde_uidle_state uidle_state;
 };
 

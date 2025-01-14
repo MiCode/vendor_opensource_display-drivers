@@ -5,12 +5,10 @@
  */
 
 #include <linux/delay.h>
-
-#if IS_ENABLED(CONFIG_QCOM_FSA4480_I2C)
-#include <linux/soc/qcom/fsa4480-i2c.h>
-#endif
 #if IS_ENABLED(CONFIG_QCOM_WCD939X_I2C)
 #include <linux/soc/qcom/wcd939x-i2c.h>
+#elif IS_ENABLED(CONFIG_QCOM_FSA4480_I2C)
+#include <linux/soc/qcom/fsa4480-i2c.h>
 #endif
 
 #include "dp_aux.h"
@@ -769,55 +767,6 @@ static void dp_aux_set_sim_mode(struct dp_aux *dp_aux,
 	mutex_unlock(&aux->mutex);
 }
 
-#if IS_ENABLED(CONFIG_QCOM_FSA4480_I2C)
-static int dp_aux_configure_fsa_switch(struct dp_aux *dp_aux,
-		bool enable, int orientation)
-{
-	struct dp_aux_private *aux;
-	int rc = 0;
-	enum fsa_function event = FSA_USBC_DISPLAYPORT_DISCONNECTED;
-
-	if (!dp_aux) {
-		DP_AUX_ERR(dp_aux, "invalid input\n");
-		rc = -EINVAL;
-		goto end;
-	}
-
-	aux = container_of(dp_aux, struct dp_aux_private, dp_aux);
-
-	if (!aux->aux_switch_node) {
-		DP_AUX_DEBUG(dp_aux, "undefined fsa4480 handle\n");
-		rc = -EINVAL;
-		goto end;
-	}
-
-	if (enable) {
-		switch (orientation) {
-		case ORIENTATION_CC1:
-			event = FSA_USBC_ORIENTATION_CC1;
-			break;
-		case ORIENTATION_CC2:
-			event = FSA_USBC_ORIENTATION_CC2;
-			break;
-		default:
-			DP_AUX_ERR(dp_aux, "invalid orientation\n");
-			rc = -EINVAL;
-			goto end;
-		}
-	}
-
-	DP_AUX_DEBUG(dp_aux, "enable=%d, orientation=%d, event=%d\n",
-			enable, orientation, event);
-
-	rc = fsa4480_switch_event(aux->aux_switch_node, event);
-
-	if (rc)
-		DP_AUX_ERR(dp_aux, "failed to configure fsa4480 i2c device (%d)\n", rc);
-end:
-	return rc;
-}
-#endif
-
 #if IS_ENABLED(CONFIG_QCOM_WCD939X_I2C)
 static int dp_aux_configure_wcd_switch(struct dp_aux *dp_aux,
 		bool enable, int orientation)
@@ -874,6 +823,53 @@ static int dp_aux_configure_wcd_switch(struct dp_aux *dp_aux,
 end:
 	return rc;
 }
+#elif IS_ENABLED(CONFIG_QCOM_FSA4480_I2C)
+static int dp_aux_configure_fsa_switch(struct dp_aux *dp_aux,
+		bool enable, int orientation)
+{
+	struct dp_aux_private *aux;
+	int rc = 0;
+	enum fsa_function event = FSA_USBC_DISPLAYPORT_DISCONNECTED;
+
+	if (!dp_aux) {
+		DP_AUX_ERR(dp_aux, "invalid input\n");
+		rc = -EINVAL;
+		goto end;
+	}
+
+	aux = container_of(dp_aux, struct dp_aux_private, dp_aux);
+
+	if (!aux->aux_switch_node) {
+		DP_AUX_DEBUG(dp_aux, "undefined fsa4480 handle\n");
+		rc = -EINVAL;
+		goto end;
+	}
+
+	if (enable) {
+		switch (orientation) {
+		case ORIENTATION_CC1:
+			event = FSA_USBC_ORIENTATION_CC1;
+			break;
+		case ORIENTATION_CC2:
+			event = FSA_USBC_ORIENTATION_CC2;
+			break;
+		default:
+			DP_AUX_ERR(dp_aux, "invalid orientation\n");
+			rc = -EINVAL;
+			goto end;
+		}
+	}
+
+	DP_AUX_DEBUG(dp_aux, "enable=%d, orientation=%d, event=%d\n",
+			enable, orientation, event);
+
+	rc = fsa4480_switch_event(aux->aux_switch_node, event);
+
+	if (rc)
+		DP_AUX_ERR(dp_aux, "failed to configure fsa4480 i2c device (%d)\n", rc);
+end:
+	return rc;
+}
 #endif
 
 struct dp_aux *dp_aux_get(struct device *dev, struct dp_catalog_aux *catalog,
@@ -922,22 +918,20 @@ struct dp_aux *dp_aux_get(struct device *dev, struct dp_catalog_aux *catalog,
 
 	/*Condition to avoid allocating function pointers for aux bypass mode*/
 	if (switch_type != DP_AUX_SWITCH_BYPASS) {
-#if IS_ENABLED(CONFIG_QCOM_FSA4480_I2C)
-		if (switch_type == DP_AUX_SWITCH_FSA4480) {
-			dp_aux->switch_configure = dp_aux_configure_fsa_switch;
-			dp_aux->switch_register_notifier = fsa4480_reg_notifier;
-			dp_aux->switch_unregister_notifier = fsa4480_unreg_notifier;
-		}
-#endif
 #if IS_ENABLED(CONFIG_QCOM_WCD939X_I2C)
 		if (switch_type == DP_AUX_SWITCH_WCD939x) {
 			dp_aux->switch_configure = dp_aux_configure_wcd_switch;
 			dp_aux->switch_register_notifier = wcd_usbss_reg_notifier;
 			dp_aux->switch_unregister_notifier = wcd_usbss_unreg_notifier;
 		}
+#elif IS_ENABLED(CONFIG_QCOM_FSA4480_I2C)
+		if (switch_type == DP_AUX_SWITCH_FSA4480) {
+			dp_aux->switch_configure = dp_aux_configure_fsa_switch;
+			dp_aux->switch_register_notifier = fsa4480_reg_notifier;
+			dp_aux->switch_unregister_notifier = fsa4480_unreg_notifier;
+		}
 #endif
 	}
-
 	return dp_aux;
 error:
 	return ERR_PTR(rc);

@@ -21,6 +21,7 @@
 #include "sde_hw_color_proc_common_v4.h"
 #include "sde_vm.h"
 
+
 #define DEMURA_BACKLIGHT_MAX 1024
 #define DEMURA_BACKLIGHT_MIN 64
 
@@ -262,6 +263,7 @@ static int _set_dspp_pcc_feature(struct sde_hw_dspp *hw_dspp,
 		ret = -EINVAL;
 	else
 		hw_dspp->ops.setup_pcc(hw_dspp, hw_cfg);
+
 	return ret;
 }
 
@@ -1745,6 +1747,46 @@ static void _sde_cp_crtc_enable_hist_irq(struct sde_crtc *sde_crtc)
 	spin_unlock_irqrestore(&node->state_lock, state_flags);
 	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
 }
+
+#ifdef MI_DISPLAY_MODIFY
+static int _check_histogram_pu_feature(struct sde_crtc *sde_crtc,struct drm_msm_hist *hist_data)
+{
+	struct sde_crtc_state *sde_crtc_state;
+	struct sde_hw_cp_cfg hw_cfg;
+
+	u32 i = 0,all_data = 0;
+
+	if (!sde_crtc) {
+		DRM_ERROR("invalid sde_crtc\n");
+		goto exit_error;
+	}
+
+	sde_crtc_state = to_sde_crtc_state(sde_crtc->base.state);
+	if (!sde_crtc_state) {
+		DRM_ERROR("sde_crtc_state is null\n");
+		goto exit_error;
+	}
+
+	if(sde_crtc_state->num_ds_enabled)
+		return 0;
+
+	hw_cfg.panel_height = sde_crtc_state->base.adjusted_mode.vdisplay;
+	hw_cfg.panel_width = sde_crtc_state->base.adjusted_mode.hdisplay;
+
+	for (i = 0; i < HIST_V_SIZE; i++) {
+		all_data += hist_data->data[i];
+	}
+
+	if(all_data != hw_cfg.panel_height*hw_cfg.panel_width) {
+		DRM_DEBUG("debug sde color process histogram error\n");
+		goto exit_error;
+	}
+
+	return 0;
+exit_error:
+		return -EINVAL;
+}
+#endif
 
 static int _sde_cp_crtc_checkfeature(u32 feature,
 		struct sde_crtc *sde_crtc,
@@ -4051,6 +4093,12 @@ static void _sde_cp_notify_hist_event(struct drm_crtc *crtc_drm, void *arg)
 	}
 
 	pm_runtime_put_sync(kms->dev->dev);
+
+	#ifdef MI_DISPLAY_MODIFY
+	if(_check_histogram_pu_feature(crtc,hist_data) != 0)
+		return;
+	#endif
+
 	/* send histogram event with blob id */
 	event.length = sizeof(u32);
 	event.type = DRM_EVENT_HISTOGRAM;
@@ -4062,7 +4110,6 @@ int sde_cp_hist_interrupt(struct drm_crtc *crtc_drm, bool en,
 	struct sde_irq_callback *hist_irq)
 {
 	struct sde_kms *kms = NULL;
-	u32 num_mixers;
 	struct sde_hw_mixer *hw_lm;
 	struct sde_hw_dspp *hw_dspp = NULL;
 	struct sde_crtc *crtc;
@@ -4082,11 +4129,14 @@ int sde_cp_hist_interrupt(struct drm_crtc *crtc_drm, bool en,
 	}
 
 	kms = get_kms(crtc_drm);
-	num_mixers = crtc->num_mixers;
 
-	for (i = 0; i < num_mixers; i++) {
+	for (i = 0; i < crtc->num_mixers; i++) {
 		hw_lm = crtc->mixers[i].hw_lm;
 		hw_dspp = crtc->mixers[i].hw_dspp;
+		if (!hw_lm) {
+			DRM_DEBUG_DRIVER("invalid lm\n");
+			return -ENODEV;
+		}
 		if (!hw_lm->cfg.right_mixer)
 			break;
 	}

@@ -11,6 +11,7 @@
 #include "dsi_clk.h"
 #include "dsi_defs.h"
 
+
 struct dsi_core_clks {
 	struct dsi_core_clk_info clks;
 };
@@ -1330,8 +1331,10 @@ int dsi_display_clk_ctrl(void *handle,
 
 	mutex_lock(&dsi_mngr_clk_mutex);
 	rc = dsi_clk_req_state(handle, clk_type, clk_state);
+
 	if (rc)
 		DSI_ERR("failed set clk state, rc = %d\n", rc);
+
 	mutex_unlock(&dsi_mngr_clk_mutex);
 
 	return rc;

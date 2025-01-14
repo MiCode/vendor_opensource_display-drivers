@@ -24,6 +24,7 @@
 
 #include "sde_dbg.h"
 
+
 #define DSI_CTRL_DEFAULT_LABEL "MDSS DSI CTRL"
 
 #define DSI_CTRL_TX_TO_MS     1200
@@ -396,6 +397,7 @@ static void dsi_ctrl_dma_cmd_wait_for_done(struct dsi_ctrl *dsi_ctrl)
 			DSI_CTRL_ERR(dsi_ctrl,
 					"Command transfer failed\n");
 		}
+
 		dsi_ctrl_disable_status_interrupt(dsi_ctrl,
 					DSI_SINT_CMD_MODE_DMA_DONE);
 	}
@@ -435,6 +437,7 @@ static void dsi_ctrl_post_cmd_transfer(struct dsi_ctrl *dsi_ctrl)
 {
 	struct dsi_ctrl_hw_ops dsi_hw_ops = dsi_ctrl->hw.ops;
 
+
 	SDE_EVT32(SDE_EVTLOG_FUNC_ENTRY, dsi_ctrl->cell_index, dsi_ctrl->pending_cmd_flags);
 
 	/* In case of broadcast messages, we poll on the slave controller. */
@@ -455,6 +458,7 @@ static void dsi_ctrl_post_cmd_transfer(struct dsi_ctrl *dsi_ctrl)
 	mutex_unlock(&dsi_ctrl->ctrl_lock);
 
 	dsi_ctrl_transfer_cleanup(dsi_ctrl);
+
 }
 
 static void dsi_ctrl_post_cmd_transfer_work(struct work_struct *work)

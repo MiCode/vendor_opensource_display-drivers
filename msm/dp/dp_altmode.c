@@ -16,6 +16,10 @@
 #include "dp_debug.h"
 #include "sde_dbg.h"
 
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_disp_print.h"
+#endif
+
 
 #define ALTMODE_CONFIGURE_MASK (0x3f)
 #define ALTMODE_HPD_STATE_MASK (0x40)
@@ -110,6 +114,10 @@ static void dp_altmode_send_pan_ack(struct altmode_client *amclient,
 static int dp_altmode_notify(void *priv, void *data, size_t len)
 {
 	int rc = 0;
+#ifdef MI_DISPLAY_MODIFY
+	int timeout = 6;
+#endif
+
 	struct dp_altmode_private *altmode =
 			(struct dp_altmode_private *) priv;
 	u8 port_index, dp_data, orientation;
@@ -142,6 +150,16 @@ static int dp_altmode_notify(void *priv, void *data, size_t len)
 			altmode->dp_altmode.base.multi_func,
 			altmode->dp_altmode.base.hpd_high,
 			altmode->dp_altmode.base.hpd_irq, altmode->connected);
+#ifdef MI_DISPLAY_MODIFY
+	DISP_UTC_INFO("payload=0x%x\n", dp_data);
+	DISP_INFO("port_index=%d, orientation=%d, pin=%d, hpd_state=%d\n",
+		port_index, orientation, pin, hpd_state);
+	DISP_INFO("multi_func=%d, hpd_high=%d, hpd_irq=%d\n",
+		altmode->dp_altmode.base.multi_func,
+		altmode->dp_altmode.base.hpd_high,
+		altmode->dp_altmode.base.hpd_irq);
+	DISP_INFO("connected=%d\n", altmode->connected);
+#endif
 
 	if (!pin) {
 		/* Cable detach */
@@ -201,8 +219,25 @@ static int dp_altmode_notify(void *priv, void *data, size_t len)
 	if (altmode->forced_disconnect)
 		goto ack;
 
+#ifdef MI_DISPLAY_MODIFY
+	/*
+	 * reference dp_gpio_hpd.c
+	 * fix dp to dp training abnormal.
+	 */
+	while (timeout) {
+		timeout--;
+		msleep(50);
+
+		if (altmode->dp_cb && altmode->dp_cb->attention) {
+			altmode->dp_cb->attention(altmode->dev);
+		}
+	}
+	DP_INFO("Callback DP display attention\n");
+#else
 	if (altmode->dp_cb && altmode->dp_cb->attention)
 		altmode->dp_cb->attention(altmode->dev);
+#endif
+
 ack:
 	dp_altmode_send_pan_ack(altmode->amclient, port_index);
 	return rc;

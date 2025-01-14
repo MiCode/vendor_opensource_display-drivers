@@ -1624,6 +1624,13 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 	print_hex_dump_debug("[drm-dp] SINK DPCD: ",
 		DUMP_PREFIX_NONE, 8, 1, dp_panel->dpcd, rlen, false);
 
+	/* If any LTTPRs in the path, read the LTTPR caps and store in panel struct */
+	if (drm_dp_read_lttpr_common_caps(drm_aux, dp_panel->dpcd, dp_panel->lttpr_common_caps))
+		DP_WARN("dpcd lttpr read fail:%d\n", rc);
+	DP_DEBUG("lttpr caps - rev:0x%x, max_lr: 0x%x, phy_rp_cnt: 0x%x, phy_rp_mode: 0x%x",
+			dp_panel->lttpr_common_caps[0], dp_panel->lttpr_common_caps[1],
+			dp_panel->lttpr_common_caps[2], dp_panel->lttpr_common_caps[3]);
+
 	rlen = drm_dp_dpcd_read(panel->aux->drm_aux,
 		DPRX_FEATURE_ENUMERATION_LIST, &rx_feature, 1);
 	if (rlen != 1) {
@@ -1737,7 +1744,11 @@ static int dp_panel_read_edid(struct dp_panel *dp_panel,
 		(void **)&dp_panel->edid_ctrl);
 	if (!dp_panel->edid_ctrl->edid) {
 		DP_ERR("EDID read failed\n");
+#ifdef MI_DISPLAY_MODIFY
+		ret = -ENOLINK;
+#else
 		ret = -EINVAL;
+#endif
 		goto end;
 	}
 end:
@@ -2044,6 +2055,27 @@ static int dp_panel_get_modes(struct dp_panel *dp_panel,
 	}
 
 	return 0;
+}
+
+static void dp_panel_set_lttpr_mode(struct dp_panel *dp_panel, bool is_transparent)
+{
+	struct dp_panel_private *panel;
+	ssize_t ret = 0;
+
+	u8 val = is_transparent ? DP_PHY_REPEATER_MODE_TRANSPARENT :
+		DP_PHY_REPEATER_MODE_NON_TRANSPARENT;
+
+	if (!dp_panel) {
+		DP_ERR("invalid input\n");
+		return;
+	}
+
+	panel = container_of(dp_panel, struct dp_panel_private, dp_panel);
+
+	ret = drm_dp_dpcd_writeb(panel->aux->drm_aux, DP_PHY_REPEATER_MODE, val);
+
+	if (ret != 1)
+		DP_WARN("failed to set LTTPR mode\n");
 }
 
 static void dp_panel_handle_sink_request(struct dp_panel *dp_panel)
@@ -3017,8 +3049,11 @@ static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
 			DP_DEBUG("prepare DSC basic params failed\n");
 			return;
 		}
-
+#ifdef MI_DISPLAY_MODIFY
+		rc = sde_dsc_populate_dsc_config(&comp_info->dsc_info.config, 0, 0);
+#else
 		rc = sde_dsc_populate_dsc_config(&comp_info->dsc_info.config, 0);
+#endif
 		if (rc) {
 			DP_DEBUG("failed populating dsc params \n");
 			return;
@@ -3190,6 +3225,7 @@ struct dp_panel *dp_panel_get(struct dp_panel_in *in)
 	dp_panel->get_mode_bpp = dp_panel_get_mode_bpp;
 	dp_panel->get_modes = dp_panel_get_modes;
 	dp_panel->handle_sink_request = dp_panel_handle_sink_request;
+	dp_panel->set_lttpr_mode = dp_panel_set_lttpr_mode;
 	dp_panel->tpg_config = dp_panel_tpg_config;
 	dp_panel->spd_config = dp_panel_spd_config;
 	dp_panel->setup_hdr = dp_panel_setup_hdr;
