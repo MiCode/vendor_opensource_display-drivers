@@ -36,6 +36,14 @@ void sde_setup_mdnie_art_v1(struct sde_hw_dspp *ctx, void *cfg, void *aiqe_top);
 void sde_reset_mdnie_art(struct sde_hw_dspp *ctx);
 
 /**
+ * sde_setup_aiqe_abc_v1 - api to setup aiqe abc programming
+ * @ctx: pointer to dspp object.
+ * @cfg: pointer to sde_hw_cp_cfg.
+ * @aiqe_top: pointer to aiqe top level structure
+ */
+void sde_setup_aiqe_abc_v1(struct sde_hw_dspp *ctx, void *cfg, void *aiqe_top);
+
+/**
  * sde_setup_copr_v1 - api to setup copr programming
  * @ctx: pointer to dspp object.
  * @cfg: Pointer to sde_hw_cp_cfg.

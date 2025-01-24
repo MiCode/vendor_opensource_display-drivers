@@ -1,6 +1,10 @@
 load(":display_driver_build.bzl", "display_module_entry")
 
-display_driver_modules = display_module_entry([":display_drivers_headers"])
+display_driver_modules = display_module_entry([
+                            ":display_drivers_headers",
+                            "//msm-kernel:mi_irq_headers",
+                            "//msm-kernel:miev_headers",
+                        ])
 module_entry = display_driver_modules.register
 
 #---------- MSM-DRM MODULE -------------------------
@@ -123,6 +127,10 @@ module_entry(
             "msm/sde_rsc_hw.c",
             "msm/sde_rsc_hw_v3.c",
          ],
+         "CONFIG_DRM_SDE_CESTA" : [
+            "msm/sde_cesta.c",
+            "msm/sde_cesta_hw.c",
+         ],
          "CONFIG_DRM_MSM_DSI" : [
             "msm/dsi/dsi_phy.c",
             "msm/dsi/dsi_pwr.c",
@@ -164,6 +172,35 @@ module_entry(
             "msm/msm_smmu.c",
             "msm/msm_prop.c",
          ],
+         "MI_DISPLAY_MODIFY" : [
+            "msm/mi_disp/mi_disp_core.c",
+            "msm/mi_disp/mi_disp_feature.c",
+            "msm/mi_disp/mi_disp_sysfs.c",
+            "msm/mi_disp/mi_disp_file.c",
+            "msm/mi_disp/mi_disp_procfs.c",
+            "msm/mi_disp/mi_disp_debugfs.c",
+            "msm/mi_disp/mi_disp_log.c",
+            "msm/mi_disp/mi_disp_flatmode.c",
+            "msm/mi_disp/mi_disp_parser.c",
+            "msm/mi_disp/mi_dsi_display.c",
+            "msm/mi_disp/mi_dsi_panel.c",
+            "msm/mi_disp/mi_sde_encoder.c",
+            "msm/mi_disp/mi_sde_connector.c",
+            "msm/mi_disp/mi_disp_print.c",
+         ],
+         "CONFIG_VIS_DISPLAY" : [
+            "msm/driver_novatek/vis_display/vis_display_boot.c",
+            "msm/driver_novatek/vis_display/vis_display_common.c",
+            "msm/driver_novatek/vis_display/vis_display_dsi.c",
+            "msm/driver_novatek/vis_display/vis_display_factory.c",
+            "msm/driver_novatek/vis_display/vis_display_gpio.c",
+            "msm/driver_novatek/vis_display/vis_display_notify.c",
+            "msm/driver_novatek/vis_display/vis_display_ops.c",
+            "msm/driver_novatek/vis_display/vis_display_power.c",
+            "msm/driver_novatek/vis_display/vis_display_pq.c",
+            "msm/driver_novatek/vis_display/vis_display_spi.c",
+            "msm/driver_novatek/vis_display/vis_display_test.c",
+         ],
          "CONFIG_MSM_SDE_ROTATOR":{
             True: [
                "rotator/sde_rotator_dev.c",
@@ -186,14 +223,14 @@ module_entry(
       },
       deps = [
          "//vendor/qcom/opensource/mm-drivers:mm_drivers_headers",
-         "//vendor/qcom/opensource/synx-kernel:%b_modules",
-         "//vendor/qcom/opensource/synx-kernel:synx_headers",
       ],
 
       # Configs are handled by config_options = []
       config_deps = {
          "CONFIG_QTI_HW_FENCE" : [
              "//vendor/qcom/opensource/mm-drivers/hw_fence:%b_msm_hw_fence",
+             "//vendor/qcom/opensource/synx-kernel:%b_modules",
+             "//vendor/qcom/opensource/synx-kernel:synx_headers",
         ],
         "CONFIG_QCOM_SPEC_SYNC" : [
             "//vendor/qcom/opensource/mm-drivers/sync_fence:%b_sync_fence",
@@ -206,6 +243,10 @@ module_entry(
         ],
         "CONFIG_MSM_MMRM" : [
             "//vendor/qcom/opensource/mmrm-driver:%b_mmrm_driver",
+        ],
+        "CONFIG_SMMU_PROXY" : [
+            "//vendor/qcom/opensource/securemsm-kernel:%b_smmu_proxy_dlkm",
+             "//vendor/qcom/opensource/securemsm-kernel:smmu_proxy_headers",
         ],
       },
 )

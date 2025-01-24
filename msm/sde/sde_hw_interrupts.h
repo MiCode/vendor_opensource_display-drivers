@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2019, 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -39,6 +39,7 @@
  * @SDE_IRQ_TYPE_HIST_DSPP_DONE:	DSPP Histogram done
  * @SDE_IRQ_TYPE_HIST_DSPP_RSTSEQ:	DSPP Histogram reset
  * @SDE_IRQ_TYPE_WD_TIMER:		Watchdog timer
+ * @SDE_IRQ_TYPE_WD_TIMER_1:        Intf Watchdog timer instance
  * @SDE_IRQ_TYPE_SFI_VIDEO_IN:		Video static frame INTR into static
  * @SDE_IRQ_TYPE_SFI_VIDEO_OUT:		Video static frame INTR out-of static
  * @SDE_IRQ_TYPE_SFI_CMD_0_IN:		DSI CMD0 static frame INTR into static
@@ -79,6 +80,7 @@ enum sde_intr_type {
 	SDE_IRQ_TYPE_HIST_DSPP_DONE,
 	SDE_IRQ_TYPE_HIST_DSPP_RSTSEQ,
 	SDE_IRQ_TYPE_WD_TIMER,
+	SDE_IRQ_TYPE_WD_TIMER_1,
 	SDE_IRQ_TYPE_SFI_VIDEO_IN,
 	SDE_IRQ_TYPE_SFI_VIDEO_OUT,
 	SDE_IRQ_TYPE_SFI_CMD_0_IN,

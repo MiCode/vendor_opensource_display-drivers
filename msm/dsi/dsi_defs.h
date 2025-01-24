@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -10,6 +10,10 @@
 #include <linux/types.h>
 #include <drm/drm_mipi_dsi.h>
 #include "msm_drv.h"
+
+#ifdef MI_DISPLAY_MODIFY
+#include <drm/mi_disp.h>
+#endif
 
 #define DSI_H_TOTAL(t) (((t)->h_active) + ((t)->h_back_porch) + \
 			((t)->h_sync_width) + ((t)->h_front_porch))
@@ -270,6 +274,21 @@ enum dsi_dyn_clk_feature_type {
  * @DSI_CMD_SET_POST_TIMING_SWITCH:        Post timing switch
  * @DSI_CMD_SET_QSYNC_ON                   Enable qsync mode
  * @DSI_CMD_SET_QSYNC_OFF                  Disable qsync mode
+ * @DSI_CMD_SET_ESYNC_POST_ON:             Panel exit sleep
+ * @DSI_CMD_SET_STILL_INDICATION_ON:       Panel still indication
+ * @DSI_CMD_SET_ARP_MODE3_HW_TE_ON:        ARP panel HW TE to drive frequnecy stepping
+ * @DSI_CMD_SET_ARP_MODE1_HW_TE_OFF:       ARP panel HW TE mode is turned off.
+ *                                         SW to drive any frequnecy stepping
+ * @DSI_CMD_SET_FI_PATTAREN1_CHANGE:       Command to change to frequency pattern1
+ * @DSI_CMD_SET_FI_PATTAREN1_CHANGE:       Command to change to frequency pattern2
+ * @DSI_CMD_SET_FI_PATTAREN1_CHANGE:       Command to change to frequency pattern3
+ * @DSI_CMD_SET_FI_PATTAREN1_CHANGE:       Command to change to frequency pattern4
+ * @DSI_CMD_SET_FI_PATTAREN1_CHANGE:       Command to change to frequency pattern5
+ * @DSI_CMD_SET_STICKY_STILL_EN            This would enable still indication(copy frame to GRAM)
+ *                                         for all the frames until disable.
+ * @DSI_CMD_SET_STICKY_STILL_DISABLE       Still indiaction disable command
+ * @DSI_CMD_SET_STICKY_ON_FLY:             Still indication enable for only one frame
+ * @DSI_CMD_SET_TRIGGER_SELF_REFRESH:      Trigger self refresh from Gram
  * @DSI_CMD_SET_MAX
  */
 enum dsi_cmd_set_type {
@@ -298,8 +317,139 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+	DSI_CMD_SET_ESYNC_POST_ON,
+	DSI_CMD_SET_STILL_INDICATION_ON,
+	DSI_CMD_SET_ARP_MODE3_HW_TE_ON,
+	DSI_CMD_SET_ARP_MODE1_HW_TE_OFF,
+	DSI_CMD_SET_FI_PATTAREN1_CHANGE,
+	DSI_CMD_SET_FI_PATTAREN2_CHANGE,
+	DSI_CMD_SET_FI_PATTAREN3_CHANGE,
+	DSI_CMD_SET_FI_PATTAREN4_CHANGE,
+	DSI_CMD_SET_FI_PATTAREN5_CHANGE,
+	DSI_CMD_SET_STICKY_STILL_EN,
+	DSI_CMD_SET_STICKY_STILL_DISABLE,
+	DSI_CMD_SET_STICKY_ON_FLY,
+	DSI_CMD_SET_TRIGGER_SELF_REFRESH,
+#ifdef MI_DISPLAY_MODIFY
+	DSI_CMD_SET_MI_DIMMINGON,
+	DSI_CMD_SET_MI_DIMMINGOFF,
+	DSI_CMD_SET_MI_HBM_ON,
+	DSI_CMD_SET_MI_HBM_OFF,
+	DSI_CMD_SET_MI_DOZE_HBM,
+	DSI_CMD_SET_MI_DOZE_LBM,
+	DSI_CMD_SET_MI_DOZE_HBM_NOLP,
+	DSI_CMD_SET_MI_DOZE_LBM_NOLP,
+	DSI_CMD_SET_MI_DOZE_SUSPEND_HBM,
+	DSI_CMD_SET_MI_DOZE_SUSPEND_LBM,
+	DSI_CMD_SET_MI_FLAT_MODE_ON,
+	DSI_CMD_SET_MI_FLAT_MODE_OFF,
+	DSI_CMD_SET_MI_FLAT_MODE_SEC_ON,
+	DSI_CMD_SET_MI_FLAT_MODE_SEC_OFF,
+	DSI_CMD_SET_MI_PREPARE_READ_FLAT,
+	DSI_CMD_SET_MI_PREPARE_READ_FLAT_OFF,
+	DSI_CMD_SET_MI_DC_ON,
+	DSI_CMD_SET_MI_DC_OFF,
+	DSI_CMD_SET_MI_SWITCH_PAGE,
+	DSI_CMD_SET_MI_ROUND_CORNER_ON,
+	DSI_CMD_SET_MI_ROUND_CORNER_OFF,
+	DSI_CMD_SET_MI_EXIT_90FPS_TIMING_SWITCH,
+	DSI_CMD_SET_MI_FRAME_SWITCH_MODE_SEC,
+	DSI_CMD_SET_MI_DOZE_TO_OFF,
+	DSI_CMD_SET_MI_PANEL_STATUS_OFFSET,
+	DSI_CMD_SET_MI_PANEL_STATUS_AFTER,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID_SUB_WRITE_1,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID_SUB_WRITE_2,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID_SUB_READ,
+	DSI_CMD_SET_MI_PANEL_CELL_ID_READ,
+	DSI_CMD_SET_MI_PANEL_CELL_ID_READ_PRE_TX,
+	DSI_CMD_SET_MI_PANEL_CELL_ID_READ_AFTER_TX,
+	DSI_CMD_SET_MI_PANEL_WP_READ,
+	DSI_CMD_SET_MI_PANEL_WP_READ_PRE_TX,
+	DSI_CMD_SET_MI_FLATMODE_STATUS,
+	DSI_CMD_SET_MI_FLATMODE_STATUS_OFFSET,
+	DSI_CMD_SET_MI_FLATMODE_STATUS_OFFSET_END,
+	DSI_CMD_SET_MI_TIMING_SWITCH_FROM_AUTO,
+	DSI_CMD_SET_MI_TIMING_SWITCH_FROM_SKIP,
+	DSI_CMD_SET_MI_TIMING_SWITCH_FROM_NORMAL,
+	DSI_CMD_SET_MI_ENABLE_MAFR_MODE,
+	DSI_CMD_SET_MI_DISABLE_MAFR_MODE,
+	DSI_CMD_SET_MI_AUTO_LIMIT,
+	DSI_CMD_SET_MI_CSC_BY_TEMPER_COMP_OFF_MODE,
+	DSI_CMD_SET_MI_CSC_BY_TEMPER_COMP_32_36_MODE,
+	DSI_CMD_SET_MI_CSC_BY_TEMPER_COMP_36_40_MODE,
+	DSI_CMD_SET_MI_CSC_BY_TEMPER_COMP_40_MODE,
+	DSI_CMD_SET_MI_OSC_TRIM_ON,
+	DSI_CMD_SET_MI_OSC_TRIM_OFF,
+	DSI_CMD_SET_MI_OSC_TRIM_120,
+	DSI_CMD_SET_MI_OSC_TRIM_155,
+	DSI_CMD_SET_MI_OSC_TRIM_120_P1,
+	DSI_CMD_SET_MI_OSC_TRIM_155_P1,
+	DSI_CMD_SET_MI_PANEL_MURA_BATCH_READ,
+	DSI_CMD_SET_MI_PANEL_MURA_OFFSET_READ,
+	DSI_CMD_SET_MI_PANEL_MURA_CHECKSUM_READ,
+	DSI_CMD_SET_MI_PANEL_MURA_BATCH_WRITE,
+	DSI_CMD_SET_MI_PANEL_MURA_OFFSET_WRITE,
+	DSI_CMD_SET_MI_PANEL_MURA_CHECKSUM_WRITE,
+	DSI_CMD_SET_MI_MURA_29COMMAND,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE1,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE2,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE3,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE4,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE5,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE6,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE7,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE8,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE9,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE10,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE11,
+	DSI_CMD_SET_MI_MURA_2OFFSET_CODE12,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE1,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE2,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE3,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE4,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE5,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE6,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE7,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE8,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE9,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE10,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE11,
+	DSI_CMD_SET_MI_MURA_3OFFSET_CODE12,
+	DSI_CMD_SET_MI_VINT_OFF,
+	DSI_CMD_SET_MI_GAMMA_REG,
+	DSI_CMD_SET_MI_PANEL_OSC_STATUS_READ,
+	DSI_CMD_SET_MI_PANEL_OSC_STATUS_READ_PRE_TX,
+#endif
 	DSI_CMD_SET_MAX
 };
+
+#ifdef MI_DISPLAY_MODIFY
+enum dsi_cmd_set_upate_type {
+	DSI_CMD_SET_ON_UPDATE,
+	DSI_CMD_SET_NOLP_UPDATE,
+	DSI_CMD_SET_TIMING_SWITCH_UPDATE,
+	DSI_CMD_SET_QSYNC_ON_UPDATE,
+	DSI_CMD_SET_QSYNC_OFF_UPDATE,
+	DSI_CMD_SET_MI_HBM_ON_UPDATE,
+	DSI_CMD_SET_MI_HBM_OFF_UPDATE,
+	DSI_CMD_SET_MI_DOZE_HBM_UPDATE,
+	DSI_CMD_SET_MI_DOZE_LBM_UPDATE,
+	DSI_CMD_SET_MI_FLAT_MODE_ON_UPDATE,
+	DSI_CMD_SET_MI_FLAT_MODE_OFF_UPDATE,
+	DSI_CMD_SET_MI_DC_ON_UPDATE,
+	DSI_CMD_SET_MI_DC_OFF_UPDATE,
+	DSI_CMD_SET_TIMING_SWITCH_FROM_AUTO_UPDATE,
+	DSI_CMD_SET_TIMING_SWITCH_FROM_SKIP_UPDATE,
+	DSI_CMD_SET_TIMING_SWITCH_FROM_NORMAL_UPDATE,
+	DSI_CMD_SET_MI_ENABLE_MAFR_MODE_UPDATE,
+	DSI_CMD_SET_MI_AUTO_LIMIT_UPDATE,
+	DSI_CMD_SET_MI_GAMMA_REG_UPDATE,
+	DSI_CMD_UPDATE_MAX
+};
+#endif
 
 /**
  * enum dsi_cmd_set_state - command set state
@@ -422,6 +572,9 @@ struct dsi_panel_cmd_set {
  * @roi_caps:         Panel ROI capabilities.
  * @qsync_min_fps:    Qsync min fps rate
  * @avr_step_fps:     AVR step fps rate
+ * @esync_enabled:    esync enabled
+ * @esync_emsync_fps: esync EM pulse rate
+ * @te_pulse_width_us:         Pulse width of TE in microseconds
  */
 struct dsi_mode_info {
 	u32 h_active;
@@ -450,6 +603,9 @@ struct dsi_mode_info {
 	struct msm_roi_caps roi_caps;
 	u32 qsync_min_fps;
 	u32 avr_step_fps;
+	bool esync_enabled;
+	u32 esync_emsync_fps;
+	u32 te_pulse_width_us;
 };
 
 /**
@@ -506,6 +662,7 @@ struct dsi_split_link_config {
  *			 cmd it points to the line after TE.
  * @dma_sched_window:	 Determines the width of the window during the
  *			 DSI command will be sent by the HW.
+ * @skip_pps_update:	 Skip sending pps command.
  */
 struct dsi_host_common_cfg {
 	enum dsi_pixel_format dst_format;
@@ -534,6 +691,11 @@ struct dsi_host_common_cfg {
 	u32 byte_intf_clk_div;
 	u32 dma_sched_line;
 	u32 dma_sched_window;
+#ifdef MI_DISPLAY_MODIFY
+	u32 clk_strength;
+	u32 deemph_eq_strength;
+#endif
+	bool skip_pps_update;
 };
 
 /**
@@ -611,6 +773,15 @@ struct dsi_host_config {
 	struct dsi_lane_map lane_map;
 };
 
+#ifdef MI_DISPLAY_MODIFY
+struct dsi_cmd_update_info {
+	enum dsi_cmd_set_type type;
+	u32 mipi_address;
+	u32 index;
+	u32 length;
+};
+#endif
+
 /**
  * struct dsi_display_mode_priv_info - private mode info that will be attached
  *                             with each drm mode
@@ -631,6 +802,7 @@ struct dsi_host_config {
  * @clk_rate_hz:          DSI bit clock per lane in hz.
  * @min_dsi_clk_hz:       Min dsi clk per lane to transfer frame in vsync time.
  * @bit_clk_list:         List of dynamic bit clock rates supported.
+ * @freq_step_list:       List of frequency scaling patterns
  * @topology:             Topology selected for the panel
  * @dsc:                  DSC compression info
  * @vdc:                  VDC compression info
@@ -661,6 +833,7 @@ struct dsi_display_mode_priv_info {
 	u64 clk_rate_hz;
 	u64 min_dsi_clk_hz;
 	struct msm_dyn_clk_list bit_clk_list;
+	struct msm_freq_step_list freq_step_list;
 
 	struct msm_display_topology topology;
 	struct msm_display_dsc_info dsc;
@@ -673,6 +846,12 @@ struct dsi_display_mode_priv_info {
 	bool widebus_support;
 	u32 allowed_mode_switch;
 	bool disable_rsc_solver;
+#ifdef MI_DISPLAY_MODIFY
+	struct dsi_cmd_update_info *cmd_update[DSI_CMD_UPDATE_MAX];
+	u32 cmd_update_count[DSI_CMD_UPDATE_MAX];
+	u32 dc_on_6Creg;
+	u32 dc_off_6Creg;
+#endif
 };
 
 /**
@@ -689,6 +868,9 @@ struct dsi_display_mode_priv_info {
  */
 struct dsi_display_mode {
 	struct dsi_mode_info timing;
+#ifdef MI_DISPLAY_MODIFY
+	struct mi_mode_info mi_timing;
+#endif
 	u32 pixel_clk_khz;
 	u32 dsi_mode_flags;
 	u32 panel_mode_caps;
@@ -833,11 +1015,13 @@ static inline bool dsi_is_type_cphy(struct dsi_host_common_cfg *cfg)
 
 /**
  * dsi_host_transfer_sub() - transfers DSI commands from host to panel
- * @host:    pointer to the DSI mipi host device
- * @cmd:     DSI command to be transferred
+ * @host:                pointer to the DSI mipi host device
+ * @cmd:                 DSI command to be transferred
+ * @do_peripheral_flush: Flag for sending this command with peripheral flush
  *
  * Return: error code.
  */
-int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd);
+int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd,
+			  bool do_peripheral_flush);
 
 #endif /* _DSI_DEFS_H_ */

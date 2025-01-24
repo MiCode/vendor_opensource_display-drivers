@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -38,6 +38,7 @@ struct dp_power_private {
 	bool strm1_clks_on;
 	bool strm0_clks_parked;
 	bool strm1_clks_parked;
+	bool link_clks_parked;
 };
 
 static int dp_power_regulator_init(struct dp_power_private *power)
@@ -321,6 +322,9 @@ static int dp_power_park_module(struct dp_power_private *power, enum dp_pm_type 
 	} else if (module == DP_STREAM1_PM) {
 		clk = power->pixel1_clk_rcg;
 		parked = &power->strm1_clks_parked;
+	} else if (module == DP_LINK_PM) {
+		clk = power->link_clk_rcg;
+		parked = &power->link_clks_parked;
 	} else {
 		goto exit;
 	}
@@ -345,7 +349,7 @@ static int dp_power_park_module(struct dp_power_private *power, enum dp_pm_type 
 		goto exit;
 	}
 
-	mp->clk_config->rate = XO_CLK_KHZ;
+	mp->clk_config->rate = XO_CLK_KHZ * 1000;
 	rc = msm_dss_clk_set_rate(mp->clk_config, mp->num_clk);
 	if (rc) {
 		DP_ERR("failed to set clk rate.\n");
@@ -493,6 +497,8 @@ static int dp_power_clk_enable(struct dp_power *dp_power,
 		power->strm0_clks_parked = false;
 	if (pm_type == DP_STREAM1_PM)
 		power->strm1_clks_parked = false;
+	if (pm_type == DP_LINK_PM)
+		power->link_clks_parked = false;
 
 	/*
 	 * This log is printed only when user connects or disconnects
@@ -705,6 +711,12 @@ static int dp_power_park_clocks(struct dp_power *dp_power)
 	rc = dp_power_park_module(power, DP_STREAM1_PM);
 	if (rc) {
 		DP_ERR("failed to park stream 1. err=%d\n", rc);
+		goto error;
+	}
+
+	rc = dp_power_park_module(power, DP_LINK_PM);
+	if (rc) {
+		DP_ERR("failed to park link clock. err=%d\n", rc);
 		goto error;
 	}
 

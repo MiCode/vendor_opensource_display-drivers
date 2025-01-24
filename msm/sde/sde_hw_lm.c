@@ -127,6 +127,22 @@ static void sde_hw_lm_setup_border_color(struct sde_hw_mixer *ctx,
 	}
 }
 
+static void sde_hw_lm_setup_border_color_v1(struct sde_hw_mixer *ctx,
+		struct sde_mdss_color *color,
+		u8 border_en)
+{
+	struct sde_hw_blk_reg_map *c = &ctx->hw;
+
+	if (border_en) {
+		SDE_REG_WRITE(c, LM_BORDER_COLOR_0_V1,
+			(color->color_0 & 0xFFF) |
+			((color->color_1 & 0xFFF) << 0x10));
+		SDE_REG_WRITE(c, LM_BORDER_COLOR_1_V1,
+			(color->color_2 & 0xFFF) |
+			((color->color_3 & 0xFFF) << 0x10));
+	}
+}
+
 static void sde_hw_lm_setup_border_color_10_bits(struct sde_hw_mixer *ctx,
 		struct sde_mdss_color *color,
 		u8 border_en)
@@ -161,6 +177,26 @@ static void sde_hw_lm_setup_blend_config_combined_alpha(
 
 	const_alpha = (bg_alpha & 0xFF) | ((fg_alpha & 0xFF) << 16);
 	SDE_REG_WRITE(c, LM_BLEND0_CONST_ALPHA + stage_off, const_alpha);
+	SDE_REG_WRITE(c, LM_BLEND0_OP + stage_off, blend_op);
+}
+
+static void sde_hw_lm_setup_blend_config_combined_alpha_v1(
+	struct sde_hw_mixer *ctx, u32 stage,
+	u32 fg_alpha, u32 bg_alpha, u32 blend_op)
+{
+	struct sde_hw_blk_reg_map *c = &ctx->hw;
+	int stage_off;
+	u32 const_alpha;
+
+	if (stage == SDE_STAGE_BASE)
+		return;
+
+	stage_off = _stage_offset(ctx, stage);
+	if (WARN_ON(stage_off < 0))
+		return;
+
+	const_alpha = (bg_alpha & 0xFF) | ((fg_alpha & 0xFF) << 16);
+	SDE_REG_WRITE(c, LM_BLEND0_CONST_ALPHA_V1 + stage_off, const_alpha);
 	SDE_REG_WRITE(c, LM_BLEND0_OP + stage_off, blend_op);
 }
 
@@ -314,6 +350,48 @@ static void sde_hw_lm_setup_dim_layer(struct sde_hw_mixer *ctx,
 	SDE_REG_WRITE(c, LM_BLEND0_OP + stage_off, val);
 	val = (alpha << 16) | (0xff - alpha);
 	SDE_REG_WRITE(c, LM_BLEND0_CONST_ALPHA + stage_off, val);
+}
+
+static void sde_hw_lm_setup_dim_layer_v1(struct sde_hw_mixer *ctx,
+		struct sde_hw_dim_layer *dim_layer)
+{
+	struct sde_hw_blk_reg_map *c = &ctx->hw;
+	int stage_off;
+	u32 val = 0, alpha = 0;
+
+	if (dim_layer->stage == SDE_STAGE_BASE)
+		return;
+
+	stage_off = _stage_offset(ctx, dim_layer->stage);
+	if (stage_off < 0) {
+		SDE_ERROR("invalid stage_off:%d for dim layer\n", stage_off);
+		return;
+	}
+
+	alpha = dim_layer->color_fill.color_3 & 0xFF;
+	val = ((dim_layer->color_fill.color_1 << 2) & 0xFFF) << 16 |
+			((dim_layer->color_fill.color_0 << 2) & 0xFFF);
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_COLOR_0_V1 + stage_off, val);
+
+	val = (alpha << 4) << 16 |
+			((dim_layer->color_fill.color_2 << 2) & 0xFFF);
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_COLOR_1_V1 + stage_off, val);
+
+	val = dim_layer->rect.h << 16 | dim_layer->rect.w;
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_SIZE_V1 + stage_off, val);
+
+	val = dim_layer->rect.y << 16 | dim_layer->rect.x;
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_XY_V1 + stage_off, val);
+
+	val = BIT(16); /* enable dim layer */
+	val |= SDE_BLEND_FG_ALPHA_FG_CONST | SDE_BLEND_BG_ALPHA_BG_CONST;
+	if (dim_layer->flags & SDE_DRM_DIM_LAYER_EXCLUSIVE)
+		val |= BIT(17);
+	else
+		val &= ~BIT(17);
+	SDE_REG_WRITE(c, LM_BLEND0_OP + stage_off, val);
+	val = (alpha << 16) | (0xff - alpha);
+	SDE_REG_WRITE(c, LM_BLEND0_CONST_ALPHA_V1 + stage_off, val);
 }
 
 static void sde_hw_lm_setup_dim_layer_10_bits(struct sde_hw_mixer *ctx,
@@ -485,6 +563,78 @@ static int sde_hw_lm_setup_noise_layer(struct sde_hw_mixer *ctx,
 	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_SIZE + stage_off, val);
 	/* partial update is not supported in noise layer */
 	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_XY + stage_off, 0);
+
+	val = 1;
+	if (mixer->right_mixer)
+		val |= (((mixer->out_width % 4) & 0x3) << 4);
+
+	if (cfg->flags & DRM_NOISE_TEMPORAL_FLAG)
+		val |= BIT(1);
+	val |= ((cfg->strength & 0x7) << 8);
+	SDE_REG_WRITE(c, LM_NOISE_LAYER, val);
+	return 0;
+}
+
+static int sde_hw_lm_setup_noise_layer_v1(struct sde_hw_mixer *ctx,
+		struct sde_hw_noise_layer_cfg *cfg)
+{
+	struct sde_hw_blk_reg_map *c = &ctx->hw;
+	int stage_off;
+	u32 val = 0, alpha = 0;
+	const struct sde_lm_sub_blks *sblk = ctx->cap->sblk;
+	struct sde_hw_mixer_cfg *mixer = &ctx->cfg;
+
+	sde_hw_clear_noise_layer(ctx);
+	if (!cfg)
+		return 0;
+
+	if (cfg->noise_blend_stage == SDE_STAGE_BASE ||
+		cfg->noise_blend_stage + 1 != cfg->attn_blend_stage ||
+		cfg->attn_blend_stage >= sblk->maxblendstages) {
+		SDE_ERROR("invalid noise_blend_stage %d attn_blend_stage %d max stage %d\n",
+			cfg->noise_blend_stage, cfg->attn_blend_stage, sblk->maxblendstages);
+		return -EINVAL;
+	}
+
+	stage_off = _stage_offset(ctx, cfg->noise_blend_stage);
+	if (stage_off < 0) {
+		SDE_ERROR("invalid stage_off:%d for noise layer blend stage:%d\n",
+				stage_off, cfg->noise_blend_stage);
+		return -EINVAL;
+	}
+	val = BIT(18) | BIT(31);
+	val |= (1 << 8);
+	alpha = 255 | (cfg->alpha_noise << 16);
+	SDE_REG_WRITE(c, LM_BLEND0_OP + stage_off, val);
+	SDE_REG_WRITE(c, LM_BLEND0_CONST_ALPHA_V1 + stage_off, alpha);
+	val = ctx->cfg.out_width | (ctx->cfg.out_height << 16);
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_SIZE_V1 + stage_off, val);
+	/* partial update is not supported in noise layer */
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_XY_V1 + stage_off, 0);
+	val = SDE_REG_READ(c, LM_OP_MODE);
+	val = (1 << cfg->noise_blend_stage) | val;
+	SDE_REG_WRITE(c, LM_OP_MODE, val);
+
+	stage_off = _stage_offset(ctx, cfg->attn_blend_stage);
+	if (stage_off < 0) {
+		SDE_ERROR("invalid stage_off:%d for atten layer blend stage:%d\n",
+				stage_off, cfg->attn_blend_stage);
+		sde_hw_clear_noise_layer(ctx);
+		return -EINVAL;
+	}
+	val = 1 | BIT(31) | BIT(16);
+	val |= BIT(2);
+	val |= (1 << 8);
+	alpha = cfg->attn_factor;
+	SDE_REG_WRITE(c, LM_BLEND0_OP + stage_off, val);
+	SDE_REG_WRITE(c, LM_BLEND0_CONST_ALPHA_V1 + stage_off, alpha);
+	val = SDE_REG_READ(c, LM_OP_MODE);
+	val = (1 << cfg->attn_blend_stage) | val;
+	SDE_REG_WRITE(c, LM_OP_MODE, val);
+	val = ctx->cfg.out_width | (ctx->cfg.out_height << 16);
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_SIZE_V1 + stage_off, val);
+	/* partial update is not supported in noise layer */
+	SDE_REG_WRITE(c, LM_BLEND0_FG_COLOR_FILL_XY_V1 + stage_off, 0);
 
 	val = 1;
 	if (mixer->right_mixer)
@@ -777,8 +927,12 @@ static void _setup_mixer_ops(struct sde_mdss_cfg *m,
 		if (test_bit(SDE_MIXER_10_BITS_ALPHA, &features))
 			ops->setup_blend_config =
 				sde_hw_lm_setup_blend_config_combined_alpha_10_bits;
+		else if (test_bit(SDE_FEATURE_MIXER_OP_V1, m->features))
+			ops->setup_blend_config =
+				sde_hw_lm_setup_blend_config_combined_alpha_v1;
 		else
-			ops->setup_blend_config = sde_hw_lm_setup_blend_config_combined_alpha;
+			ops->setup_blend_config =
+				sde_hw_lm_setup_blend_config_combined_alpha;
 	} else {
 		ops->setup_blend_config = sde_hw_lm_setup_blend_config;
 	}
@@ -794,6 +948,8 @@ static void _setup_mixer_ops(struct sde_mdss_cfg *m,
 
 	if (test_bit(SDE_MIXER_10_BITS_COLOR, &features))
 		ops->setup_border_color = sde_hw_lm_setup_border_color_10_bits;
+	else if (test_bit(SDE_FEATURE_MIXER_OP_V1, m->features))
+		ops->setup_border_color = sde_hw_lm_setup_border_color_v1;
 	else
 		ops->setup_border_color = sde_hw_lm_setup_border_color;
 
@@ -804,15 +960,18 @@ static void _setup_mixer_ops(struct sde_mdss_cfg *m,
 	if (test_bit(SDE_DIM_LAYER, &features)) {
 		if (test_bit(SDE_MIXER_10_BITS_COLOR, &features))
 			ops->setup_dim_layer = sde_hw_lm_setup_dim_layer_10_bits;
+		else if (test_bit(SDE_FEATURE_MIXER_OP_V1, m->features))
+			ops->setup_dim_layer = sde_hw_lm_setup_dim_layer_v1;
 		else
 			ops->setup_dim_layer = sde_hw_lm_setup_dim_layer;
-
 		ops->clear_dim_layer = sde_hw_lm_clear_dim_layer;
 	}
 
 	if (test_bit(SDE_MIXER_NOISE_LAYER, &features)) {
 		if (test_bit(SDE_MIXER_10_BITS_COLOR, &features))
 			ops->setup_noise_layer = sde_hw_lm_setup_noise_layer_10_bits;
+		else if (test_bit(SDE_FEATURE_MIXER_OP_V1, m->features))
+			ops->setup_noise_layer = sde_hw_lm_setup_noise_layer_v1;
 		else
 			ops->setup_noise_layer = sde_hw_lm_setup_noise_layer;
 	}

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -457,7 +457,17 @@ struct dsi_ctrl_hw_ops {
 	 */
 	void (*set_video_timing)(struct dsi_ctrl_hw *ctrl,
 				 struct dsi_mode_info *mode);
-
+#ifdef MI_DISPLAY_MODIFY
+	/**
+	 * get_video_timing() - get the timing for video frame
+	 * @ctrl:          Pointer to controller host hardware.
+	 * @type:          Video timming type.
+	 *
+	 * Get the video timing parameters for the DSI video mode operation.
+	 */
+	u32 (*get_video_timing)(struct dsi_ctrl_hw *ctrl,
+				 const char *type);
+#endif
 	/**
 	 * cmd_engine_setup() - setup dsi host controller for command mode
 	 * @ctrl:          Pointer to the controller host hardware.
@@ -819,11 +829,12 @@ struct dsi_ctrl_hw_ops {
 
 	/** schedule_dma_cmd() - Schdeule DMA command transfer on a
 	 *                       particular blanking line.
-	 * @ctrl:         Pointer to the controller host hardware.
-	 * @line_no:      Blanking line number on whihch DMA command
-	 *                needs to be sent.
+	 * @ctrl:                Pointer to the controller host hardware.
+	 * @line_no:             Blanking line number on whihch DMA command
+	 *                       needs to be sent.
+	 * @do_peripheral_flush: Flag for sending this command with peripheral flush.
 	 */
-	void (*schedule_dma_cmd)(struct dsi_ctrl_hw *ctrl, int line_no);
+	void (*schedule_dma_cmd)(struct dsi_ctrl_hw *ctrl, int line_no, bool do_peripheral_flush);
 
 	/**
 	 * ctrl_reset() - Reset DSI lanes to recover from DSI errors
@@ -914,11 +925,12 @@ struct dsi_ctrl_hw_ops {
 	/**
 	 * hw.ops.init_cmddma_trig_ctrl() - Initialize the default trigger used
 	 *                             for command mode DMA path.
-	 * @ctrl:	Pointer to the controller host hardware.
-	 * @cfg:	Common configuration parameters.
+	 * @ctrl:                Pointer to the controller host hardware.
+	 * @cfg:                 Common configuration parameters.
+	 * @do_peripheral_flush: Flag for sending this command with peripheral flush.
 	 */
 	void (*init_cmddma_trig_ctrl)(struct dsi_ctrl_hw *ctrl,
-			struct dsi_host_common_cfg *cfg);
+			struct dsi_host_common_cfg *cfg, bool do_peripheral_flush);
 
 	/**
 	 * hw.ops.log_line_count() - reads the MDP interface line count

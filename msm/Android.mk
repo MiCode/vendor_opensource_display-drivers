@@ -1,3 +1,4 @@
+ifneq (, $(filter $(call get-component-name), miodm))
 DISPLAY_SELECT := CONFIG_DRM_MSM=m
 
 LOCAL_PATH := $(call my-dir)
@@ -27,12 +28,15 @@ ifneq ($(TARGET_BOARD_AUTO),true)
 ifeq ($(CONFIG_MSM_MMRM), y)
 	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,mmrm-module-symvers)/Module.symvers
 endif
-ifneq ($(TARGET_BOARD_PLATFORM), taro)
+ifneq ($(call is-board-platform-in-list, taro monaco), true)
 	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,sync-fence-module-symvers)/Module.symvers
 	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,msm-ext-disp-module-symvers)/Module.symvers
 	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,hw-fence-module-symvers)/Module.symvers
 	ifeq ($(CONFIG_HDCP_QSEECOM), y)
 	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,sec-module-symvers)/Module.symvers
+	endif
+	ifeq ($(CONFIG_SMMU_PROXY), y)
+	KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(PWD)/$(call intermediates-dir-for,DLKM,smmu-proxy-module-symvers)/Module.symvers
 	endif
 endif
 endif
@@ -51,7 +55,7 @@ ifeq ($(CONFIG_MSM_MMRM), y)
 	LOCAL_REQUIRED_MODULES    += mmrm-module-symvers
 	LOCAL_ADDITIONAL_DEPENDENCIES += $(call intermediates-dir-for,DLKM,mmrm-module-symvers)/Module.symvers
 endif
-ifneq ($(TARGET_BOARD_PLATFORM), taro)
+ifneq ($(call is-board-platform-in-list, taro monaco), true)
 	LOCAL_REQUIRED_MODULES    += sync-fence-module-symvers
 	LOCAL_REQUIRED_MODULES    += msm-ext-disp-module-symvers
 	LOCAL_REQUIRED_MODULES    += hw-fence-module-symvers
@@ -70,3 +74,4 @@ endif
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 ###########################################################
 endif # DLKM check
+endif

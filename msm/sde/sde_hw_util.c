@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
@@ -85,9 +85,93 @@ static u32 sde_hw_util_log_mask = SDE_DBG_MASK_NONE;
 #define QSEED3_DST_UV_SIZE                 0xD4
 #define QSEED3_DST_LE_OFFSET               0xD8
 #define QSEED3_DST_RE_OFFSET               0xDC
+#define QTIMER_DISABLE 0x1
+#define QTIMER_ENABLE 0x2
+#define QTMR_V1_CNTFRQ 0x10
+#define QTMR_V1_CNTP_CTL 0x2c
+#define QTMR_V1_CNTP_TVAL 0x28
 
 typedef void (*scaler_lut_type)(struct sde_hw_blk_reg_map *,
 		struct sde_hw_scaler3_cfg *, u32);
+
+static irqreturn_t sde_qtimer_irq_cb(int irq, void *arg)
+{
+	struct drm_device *dev = arg;
+	struct msm_drm_private *priv = dev->dev_private;
+	struct sde_kms *sde_kms = to_sde_kms(priv->kms);
+
+	SDE_EVT32(0);
+	if (sde_kms->sde_qtimer.qtimer_cb)
+		sde_qtimer_start(&sde_kms->sde_qtimer);
+
+	return IRQ_HANDLED;
+}
+
+void msm_sde_qtimer_install(struct device *dev)
+{
+	int ret, count, irq;
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drm_device *ddev = platform_get_drvdata(pdev);
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct sde_kms *sde_kms = to_sde_kms(priv->kms);
+	struct resource *qtimer_res;
+	unsigned long qtimer_reg_size;
+
+	if (!pdev) {
+		pr_err("pdev is NULL\n");
+		return;
+	}
+
+	count = of_property_count_strings(pdev->dev.of_node, "interrupt-names");
+	if (count <= 1) {
+		pr_debug("Qtimer not defined\n");
+		return;
+	}
+
+	irq = platform_get_irq(pdev, 1);
+	if (irq < 0) {
+		pr_debug("Fail to get Qtimer irq\n");
+		return;
+	}
+
+	qtimer_res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "qtimer_reg");
+	qtimer_reg_size = resource_size(qtimer_res);
+	sde_kms->sde_qtimer.qtimer_cb = sde_qtimer_irq_cb;
+
+	ret = request_irq(irq, sde_kms->sde_qtimer.qtimer_cb,
+	__IRQF_TIMER | IRQF_NO_THREAD, ddev->driver->name, ddev);
+	enable_irq_wake(irq);
+	sde_kms->sde_qtimer.qtimer_mmio = ioremap(qtimer_res->start, qtimer_reg_size);
+}
+
+void sde_qtimer_start(struct sde_qtimer *sde_qtimer)
+{
+	unsigned long q_cycles, q_freq;
+
+	q_freq = readl_relaxed(sde_qtimer->qtimer_mmio+QTMR_V1_CNTFRQ);
+
+	q_cycles = (q_freq * sde_qtimer->time_in_ns) / NSEC_PER_SEC;
+
+	/* write 0x2 to QTMR_V1_CNTP_CTL to enable qtimer */
+	writel_relaxed(QTIMER_ENABLE, sde_qtimer->qtimer_mmio+QTMR_V1_CNTP_CTL);
+
+	/*
+	 * Write q_cycles(tcxo) to QTMR_V1_CNTP_TVAL to invoke callback
+	 * function at the interval of sde_qtimer->time_in_ns.
+	 */
+	writel_relaxed(q_cycles, sde_qtimer->qtimer_mmio+QTMR_V1_CNTP_TVAL);
+
+	/* write 0x1 to QTMR_V1_CNTP_CTL to disable qtimer */
+	writel_relaxed(QTIMER_DISABLE, sde_qtimer->qtimer_mmio+QTMR_V1_CNTP_CTL);
+	SDE_EVT32(q_cycles>>32, q_cycles);
+
+}
+
+void sde_qtimer_stop(struct sde_qtimer *sde_qtimer)
+{
+	writel_relaxed(0x2, sde_qtimer->qtimer_mmio+0x2c);
+	SDE_EVT32(0);
+}
 
 void sde_reg_write(struct sde_hw_blk_reg_map *c,
 		u32 reg_off,

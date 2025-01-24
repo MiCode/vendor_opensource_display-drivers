@@ -49,6 +49,7 @@
 #define SDE_HW_VER_650	SDE_HW_VER(6, 5, 0) /* scuba */
 #define SDE_HW_VER_660	SDE_HW_VER(6, 6, 0) /* holi */
 #define SDE_HW_VER_670	SDE_HW_VER(6, 7, 0) /* shima */
+#define SDE_HW_VER_680	SDE_HW_VER(6, 8, 0) /* monaco */
 #define SDE_HW_VER_700	SDE_HW_VER(7, 0, 0) /* lahaina */
 #define SDE_HW_VER_720	SDE_HW_VER(7, 2, 0) /* yupik */
 #define SDE_HW_VER_810	SDE_HW_VER(8, 1, 0) /* waipio */
@@ -56,6 +57,7 @@
 #define SDE_HW_VER_850	SDE_HW_VER(8, 5, 0) /* cape */
 #define SDE_HW_VER_900	SDE_HW_VER(9, 0, 0) /* kalama */
 #define SDE_HW_VER_A00	SDE_HW_VER(10, 0, 0) /* pineapple */
+#define SDE_HW_VER_B00  SDE_HW_VER(11, 0, 0) /* niobe */
 #define SDE_HW_VER_C00	SDE_HW_VER(12, 0, 0) /* sun */
 
 /* Avoid using below IS_XXX macros outside catalog, use feature bit instead */
@@ -80,6 +82,7 @@
 #define IS_SCUBA_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_650)
 #define IS_HOLI_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_660)
 #define IS_SHIMA_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_670)
+#define IS_MONACO_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_680)
 #define IS_LAHAINA_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_700)
 #define IS_YUPIK_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_720)
 #define IS_WAIPIO_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_810)
@@ -87,6 +90,7 @@
 #define IS_CAPE_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_850)
 #define IS_KALAMA_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_900)
 #define IS_PINEAPPLE_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_A00)
+#define IS_NIOBE_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_B00)
 #define IS_SUN_TARGET(rev) IS_SDE_MAJOR_MINOR_SAME((rev), SDE_HW_VER_C00)
 
 #define SDE_HW_BLK_NAME_LEN	16
@@ -630,6 +634,7 @@ enum {
  * @SDE_CTL_HW_FENCE_DIR_WRITE  CTL support hw fencing dir writes
  * @SDE_CTL_NO_LAYER_EXT        CTL removal of CTL_LAYER_EXTx registers and addition
  *                              of active bits for pipes and layer mixers
+ * @SDE_CTL_CESTA_FLUSH         CTL supports display cesta flush programming
  * @SDE_CTL_MAX
  */
 enum {
@@ -643,6 +648,7 @@ enum {
 	SDE_CTL_HW_FENCE_TRIGGER_SEL,
 	SDE_CTL_HW_FENCE_DIR_WRITE,
 	SDE_CTL_NO_LAYER_EXT,
+	SDE_CTL_CESTA_FLUSH,
 	SDE_CTL_MAX
 };
 
@@ -661,6 +667,7 @@ enum {
  * @SDE_INTF_MDP_VSYNC_TS       INTF block has mdp vsync timestamp logged
  * @SDE_INTF_MDP_VSYNC_FC       INTF block has mdp vsync frame counter
  * @SDE_INTF_AVR_STATUS         INTF block has AVR_STATUS field in AVR_CONTROL register
+ * @SDE_INTF_ESYNC              INTF block has ESYNC support
  * @SDE_INTF_WD_JITTER          INTF block has WD timer jitter support
  * @SDE_INTF_WD_LTJ_CTL         INTF block has WD long term jitter control support
  * @SDE_INTF_TE_DEASSERT_DETECT INTF block has TE Deassert detect support
@@ -668,6 +675,8 @@ enum {
  * @SDE_INTF_TE_LEVEL_TRIGGER   INTF block has TE Level trigger gating support
  * @SDE_INTF_TEAR_TE_LEVEL_MODE	INTF block has TE Level mode support
  * @SDE_INTF_NUM_AVR_STEP       INTF block has NUM_AVR_STEP support
+ * @SDE_INTF_PANIC_CTRL         INTF block has panic in vid mode & panic/wakup control in cmd mode
+ * @SDE_INTF_PERIPHERAL_FLUSH   INTF block has peripheral flush support
  * @SDE_INTF_MAX
  */
 enum {
@@ -683,6 +692,7 @@ enum {
 	SDE_INTF_MDP_VSYNC_TS,
 	SDE_INTF_MDP_VSYNC_FC,
 	SDE_INTF_AVR_STATUS,
+	SDE_INTF_ESYNC,
 	SDE_INTF_WD_JITTER,
 	SDE_INTF_WD_LTJ_CTL,
 	SDE_INTF_TE_DEASSERT_DETECT,
@@ -690,6 +700,8 @@ enum {
 	SDE_INTF_TE_LEVEL_TRIGGER,
 	SDE_INTF_TEAR_TE_LEVEL_MODE,
 	SDE_INTF_NUM_AVR_STEP,
+	SDE_INTF_PANIC_CTRL,
+	SDE_INTF_PERIPHERAL_FLUSH,
 	SDE_INTF_MAX
 };
 
@@ -847,6 +859,8 @@ enum sde_ppb_size_option {
  * @SDE_FEATURE_UCSC_SUPPORTED  UCSC pipe format supported
  * @SDE_FEATURE_10_BITS_COMPONENTS Support for 10 bits components
  * @SDE_FEATURE_UBWC_LOSSY	Support UBWC Lossy
+ * @SDE_FEATURE_DS_PU_SUPPORTED        Support Destination scaler Partial Update
+ * @SDE_FEATURE_MIXER_OP_V1     Mixer ops V1 support
  * @SDE_FEATURE_MAX:             MAX features value
  */
 enum sde_mdss_features {
@@ -897,6 +911,8 @@ enum sde_mdss_features {
 	SDE_FEATURE_UCSC_SUPPORTED,
 	SDE_FEATURE_10_BITS_COMPONENTS,
 	SDE_FEATURE_UBWC_LOSSY,
+	SDE_FEATURE_DS_PU_SUPPORTED,
+	SDE_FEATURE_MIXER_OP_V1,
 	SDE_FEATURE_MAX
 };
 
@@ -1304,6 +1320,9 @@ enum sde_clk_ctrl_type {
 	SDE_CLK_CTRL_VIG2,
 	SDE_CLK_CTRL_VIG3,
 	SDE_CLK_CTRL_VIG4,
+	SDE_CLK_CTRL_VIG5,
+	SDE_CLK_CTRL_VIG6,
+	SDE_CLK_CTRL_VIG7,
 	SDE_CLK_CTRL_DMA0,
 	SDE_CLK_CTRL_DMA1,
 	SDE_CLK_CTRL_DMA2,
@@ -1334,6 +1353,9 @@ static const char *sde_clk_ctrl_type_s[SDE_CLK_CTRL_MAX] = {
 	[SDE_CLK_CTRL_VIG2] = "VIG2",
 	[SDE_CLK_CTRL_VIG3] = "VIG3",
 	[SDE_CLK_CTRL_VIG4] = "VIG4",
+	[SDE_CLK_CTRL_VIG5] = "VIG5",
+	[SDE_CLK_CTRL_VIG6] = "VIG6",
+	[SDE_CLK_CTRL_VIG7] = "VIG7",
 	[SDE_CLK_CTRL_DMA0] = "DMA0",
 	[SDE_CLK_CTRL_DMA1] = "DMA1",
 	[SDE_CLK_CTRL_DMA2] = "DMA2",
@@ -1365,6 +1387,8 @@ struct sde_clk_ctrl_reg {
  * @ubwc_swizzle:      ubwc default swizzle setting
  * @has_dest_scaler:   indicates support of destination scaler
  * @smart_panel_align_mode: split display smart panel align modes
+ * @hw_fence_mdp_offset: address for mdp hw-fence reg block
+ * @has_soccp:         true if dpu hw supports signaling to/from soccp
  * @clk_ctrls          clock control register definition
  * @clk_status         clock status register definition
  */
@@ -1375,6 +1399,8 @@ struct sde_mdp_cfg {
 	u32 ubwc_swizzle;
 	bool has_dest_scaler;
 	u32 smart_panel_align_mode;
+	u32 hw_fence_mdp_offset;
+	bool has_soccp;
 	struct sde_clk_ctrl_reg clk_ctrls[SDE_CLK_CTRL_MAX];
 	struct sde_clk_ctrl_reg clk_status[SDE_CLK_CTRL_MAX];
 };
@@ -2004,6 +2030,8 @@ struct sde_perf_cfg {
  * @demura_supported    indicates which SSPP/RECT combinations support demura
  * @aiqe_count          number of aiqe hardware instances
  * @ai_scaler_count     number of ai scaler hardware instances
+ * @ssip_allowed        indicates if ssip register access is allowed
+ * @abc_count           number of aiqe hardware instances
  * @trusted_vm_env      true if the driver is executing in the trusted VM
  * @tvm_reg_count	number of sub-driver register ranges that need to be included
  *					for trusted vm for accepting the resources
@@ -2026,6 +2054,7 @@ struct sde_perf_cfg {
  * @max_mixer_width     max layer mixer line width
  * @max_mixer_blendstages       max layer mixer blend stages (z orders)
  * @max_cwb             max number of dcwb/cwb supported
+ * @max_bw_upvote_threshold_ns bandwidth upvote threshold with cesta/rscc
  * @vbif_qos_nlvl       number of vbif QoS priority levels
  * @qos_target_time_ns  normalized qos target time for line-based qos
  * @macrotile_mode      UBWC parameter for macro tile channel distribution
@@ -2038,6 +2067,7 @@ struct sde_perf_cfg {
  * @uidle_cfg           settings for uidle feature
  * @irq_offset_list     list of sde_intr_irq_offsets to initialize irq table
  * @has_line_insertion  line insertion support status
+ * @osc_clk_rate        oscillator clock rate
  * @features            bitmap of supported SDE_FEATUREs
  * @dma_formats         supported formats for dma pipe
  * @vig_formats         supported formats for vig pipe
@@ -2052,8 +2082,12 @@ struct sde_perf_cfg {
  * @rgb_lossy_formats	supported formats for UBWC lossy
  * @ipcc_protocol_id    ipcc protocol id for the hw
  * @ipcc_client_phys_id dpu ipcc client id for the hw, physical client id if supported
+ * @soccp_ph            if soccp is supported, soccp phandle needed to get rproc to set power vote
+ * @is_vrr_hw_fence_enable        enable hw-fence override configuration
  * @ppb_sz_program      enum value for pingpong buffer size programming choice by hw
  * @ppb_buf_max_lines   maximum lines needed for pingpong latency buffer size
+ * @controlled_SR       Controls AP self refresh handling of early ept only when there is overlap.
+ *                      If not set it is immediate self refresh
  */
 struct sde_mdss_cfg {
 	/* Block Revisions */
@@ -2123,6 +2157,8 @@ struct sde_mdss_cfg {
 	u32 demura_supported[SSPP_MAX][2];
 	u32 aiqe_count;
 	u32 ai_scaler_count;
+	bool ssip_allowed;
+	u32 abc_count;
 
 	/* Secure & Trusted UI */
 	bool trusted_vm_env;
@@ -2148,6 +2184,7 @@ struct sde_mdss_cfg {
 	u32 max_mixer_width;
 	u32 max_mixer_blendstages;
 	u32 max_cwb;
+	u32 max_bw_upvote_threshold_ns;
 
 	/* Configs */
 	u32 vbif_qos_nlvl;
@@ -2164,6 +2201,7 @@ struct sde_mdss_cfg {
 	struct list_head irq_offset_list;
 	DECLARE_BITMAP(features, SDE_FEATURE_MAX);
 	bool has_line_insertion;
+	u64 osc_clk_rate;
 
 	/* Supported Pixel Format Lists */
 	struct sde_format_extended *dma_formats;
@@ -2180,9 +2218,13 @@ struct sde_mdss_cfg {
 
 	u32 ipcc_protocol_id;
 	u32 ipcc_client_phys_id;
+	phandle soccp_ph;
+	bool is_vrr_hw_fence_enable;
 
 	enum sde_ppb_size_option ppb_sz_program;
 	u32 ppb_buf_max_lines;
+	u32 controlled_SR;
+	u32 early_EPT_handling;
 };
 
 struct sde_mdss_hw_cfg_handler {

@@ -8,9 +8,6 @@
 #include "sde_hw_color_proc_v4.h"
 #include "sde_dbg.h"
 
-#define DEMURAV1_CFG0_PARAM4_MASK 5
-#define DEMURAV2_CFG0_PARAM4_MASK 7
-
 static int sde_write_3d_gamut(struct sde_hw_blk_reg_map *hw,
 		struct drm_msm_3d_gamut *payload, u32 base,
 		u32 *opcode, u32 pipe, u32 scale_tbl_a_len,
@@ -481,66 +478,25 @@ void sde_ltm_clear_merge_mode(struct sde_hw_dspp *ctx)
 	SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->ltm.base + 0x04, clear);
 }
 
-void sde_demura_backlight_cfg(struct sde_hw_dspp *ctx, u64 val, struct sde_hw_cp_cfg *hw_cfg)
+void sde_demura_backlight_cfg(struct sde_hw_dspp *ctx, struct sde_hw_cp_cfg *hw_cfg)
 {
-	u32 demura_base;
-	u32 backlight, gain[2];
-	struct drm_msm_dem_cfg *dcfg = NULL;
-	uint32_t mask_bits = DEMURAV1_CFG0_PARAM4_MASK;
+	u32 backlight;
+	u64 *val_ptr = NULL;
 
-	if (!ctx) {
-		DRM_ERROR("invalid parameter ctx %pK", ctx);
-		return;
-	}
-
-	if (!hw_cfg) {
-		DRM_ERROR("invalid parameter hw_cfg");
+	if (!ctx || !hw_cfg) {
+		DRM_ERROR("invalid parameter ctx %pK hw_cfg %pK\n", ctx, hw_cfg);
 		return;
 	}
 
 	if (!hw_cfg->payload) {
-		DRM_DEBUG_DRIVER("disable demura feature\n");
+		DRM_DEBUG_DRIVER("disable demura backlight feature\n");
+		SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->demura.base + 0x8, 0);
 		return;
 	}
 
-	dcfg = (struct drm_msm_dem_cfg *)hw_cfg->payload;
-	demura_base = ctx->cap->sblk->demura.base;
-	backlight = (val & REG_MASK(32));
+	val_ptr = hw_cfg->payload;
+	backlight = (*val_ptr & REG_MASK(32));
 	SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->demura.base + 0x8, backlight);
-
-	backlight = backlight & REG_MASK(16);
-	if (backlight <= 41) {
-		/* Gain0.....Gain7
-		* {0, 0, 0, 3, 2, 2, 1, 1}
-		*/
-		gain[0] = (0x0 & 0x3f) | ((0x0 & 0x3f) << 8) |
-			  ((0x0 & 0x3f) << 16) | ((0x3 & 0x3f) << 24);
-		gain[1] = (0x2 & 0x3f) | ((0x2 & 0x3f) << 8) |
-			  ((0x1 & 0x3f) << 16) | ((0x1 & 0x3f) << 24);
-	} else if (backlight <= 164) {
-		/* Gain0.....Gain7
-		* {0, 0, 0, 2, 1, 1, 2, 3}
-		*/
-		gain[0] = (0x0 & 0x3f) | ((0x0 & 0x3f) << 8) |
-			  ((0x0 & 0x3f) << 16) | ((0x2 & 0x3f) << 24);
-		gain[1] = (0x1 & 0x3f) | ((0x1 & 0x3f) << 8) |
-			  ((0x2 & 0x3f) << 16) | ((0x3 & 0x3f) << 24);
-	} else {
-		/* check for demura v2 and assign mask bit accordingly */
-		if (ctx->cap->sblk->demura.version == SDE_COLOR_PROCESS_VER(0x2, 0x0))
-			mask_bits = DEMURAV2_CFG0_PARAM4_MASK;
-
-		gain[0] = (dcfg->cfg0_param4[0] & REG_MASK(mask_bits)) |
-			((dcfg->cfg0_param4[1] & REG_MASK(mask_bits)) << 8) |
-			  ((dcfg->cfg0_param4[2] & REG_MASK(mask_bits)) << 16) |
-			  ((dcfg->cfg0_param4[3] & REG_MASK(mask_bits)) << 24);
-		gain[1] = (dcfg->cfg0_param4[4] & REG_MASK(mask_bits)) |
-			((dcfg->cfg0_param4[5] & REG_MASK(mask_bits)) << 8) |
-			  ((dcfg->cfg0_param4[6] & REG_MASK(mask_bits)) << 16) |
-			  ((dcfg->cfg0_param4[7] & REG_MASK(mask_bits)) << 24);
-	}
-	SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->demura.base + 0x4c, gain[0]);
-	SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->demura.base + 0x50, gain[1]);
 }
 
 void sde_setup_fp16_cscv1(struct sde_hw_pipe *ctx,
@@ -893,15 +849,9 @@ int sde_spr_check_udc_cfg(struct sde_hw_dspp *ctx, void *cfg)
 		j = 0;
 		limit = (w >> 1) + 1;
 		for (j = 0; j < lines; j++) {
-			uint32_t o1 = spr_payload->cfg2[cfg_1_start + (j*2)];
 			uint32_t o2 = spr_payload->cfg2[cfg_1_start + (j*2) + 1];
 
-
-			if (o1 > limit) {
-				DRM_ERROR("Invalid CFG2 - C%u L%u, o1 exceeds limits",
-						i, j);
-				return -EINVAL;
-			} else if (o2 > limit) {
+		if (o2 > limit) {
 				DRM_ERROR("Invalid CFG2 - C%u L%u, o2 exceeds limits",
 						i, j);
 				return -EINVAL;

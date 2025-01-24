@@ -59,14 +59,6 @@ int set_copr_feature(struct sde_hw_dspp *hw_dspp, struct sde_hw_cp_cfg *hw_cfg,
 			 struct sde_crtc *hw_crtc);
 
 /**
- * sde_dspp_mdnie_read_art_done - read mdnie art_done
- * @hw_dspp: pointer to dspp hardware description
- * @art_done: pointer to art_done value
- */
-int sde_dspp_mdnie_read_art_done(struct sde_hw_dspp *hw_dspp,
-				    u32 *art_done);
-
-/**
  * sde_dspp_copr_read_status - read copr_status registers
  * @hw_dspp: pointer to dspp hardware description
  * @copr_status: pointer to copr status values
@@ -117,4 +109,13 @@ int check_ai_scaler_feature(struct sde_hw_dspp *hw_dspp, struct sde_hw_cp_cfg *h
 int set_ai_scaler_feature(struct sde_hw_dspp *hw_dspp, struct sde_hw_cp_cfg *hw_cfg,
 		    struct sde_crtc *hw_crtc);
 
-#endif /*_SDE_COLOR_PROCESSING_AIQE_H */
+/**
+ * set_aiqe_abc_feature - setup ops for aiqe abc feature
+ * @hw_dspp: pointer to dspp hardware description
+ * @hw_cfg: pointer to feature configuration
+ * @hw_crtc: pointer to virtualized crtc data structure
+ */
+int set_aiqe_abc_feature(struct sde_hw_dspp *hw_dspp, struct sde_hw_cp_cfg *hw_cfg,
+						struct sde_crtc *hw_crtc);
+
+#endif /* _SDE_COLOR_PROCESSING_AIQE_H */

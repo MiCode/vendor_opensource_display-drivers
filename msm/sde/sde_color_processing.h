@@ -148,6 +148,7 @@ enum sde_cp_crtc_features {
 	SDE_CP_CRTC_DSPP_AIQE_SSRC_DATA,
 	SDE_CP_CRTC_DSPP_COPR,
 	SDE_CP_CRTC_DSPP_AI_SCALER,
+	SDE_CP_CRTC_DSPP_AIQE_ABC,
 	SDE_CP_CRTC_DSPP_MAX,
 	/* DSPP features end */
 
@@ -188,6 +189,7 @@ struct sde_cp_crtc_range_prop_payload {
  * @plane: plane that has been enabled and skipped blending
  * @width: plane width
  * @height: plane height
+ * @is_virtual: indicates plane type
  */
 
 struct sde_cp_crtc_skip_blend_plane {
@@ -195,6 +197,7 @@ struct sde_cp_crtc_skip_blend_plane {
 	enum sde_sspp plane;
 	u32 width;
 	u32 height;
+	bool is_virtual;
 };
 
 /**
@@ -416,24 +419,20 @@ void sde_cp_set_skip_blend_plane_info(struct drm_crtc *crtc,
 int sde_dspp_spr_read_opr_value(struct sde_hw_dspp *hw_dspp, u32 *opr_value);
 
 /**
- * sde_cp_backlight_notification(): disable cp features
- * @crtc: Pointer to drm_crtc.
- * @bl_val: Backlight value.
- * @bl_max: Max backlight value.
- */
-void sde_cp_backlight_notification(struct drm_crtc *crtc, u32 bl_val, u32 bl_max);
-
-/**
  * _sde_cp_mark_mdnie_art_property(): mark mdnie art property internally as dirty.
  * @crtc: pointer to drm crtc.
  */
 void _sde_cp_mark_mdnie_art_property(struct drm_crtc *crtc);
 
+/** _sde_cp_check_mdnie_art_done: check mdnie art done status .
+ * @crtc: pointer to drm crtc.
+ */
+void _sde_cp_check_mdnie_art_done(struct drm_crtc *crtc);
+
 /**
  * sde_cp_get_ai_scaler_io_res - populates the destination scaler src/dst w/h
  * @crtc_state: pointer to drm crtc state
- * @res: pointer to the output struct to populate the src/dst
  */
-void sde_cp_get_ai_scaler_io_res(struct drm_crtc_state *crtc_state, struct sde_io_res *res);
+void sde_cp_get_ai_scaler_io_res(struct drm_crtc_state *crtc_state);
 
 #endif /*_SDE_COLOR_PROCESSING_H */

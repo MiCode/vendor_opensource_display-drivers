@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -714,6 +714,26 @@ int sde_vbif_halt_xin_mask(struct sde_kms *sde_kms, u32 xin_id_mask,
 	}
 
 	return 0;
+}
+
+int sde_vbif_setup_clk_force_ctrl(struct sde_kms *sde_kms, enum sde_clk_ctrl_type clk_ctrl,
+		bool enable)
+{
+	int ret;
+	struct sde_hw_vbif *vbif;
+
+	if (!sde_kms)
+		return -EINVAL;
+
+	vbif = sde_kms->hw_vbif[VBIF_RT];
+	if (!vbif)
+		return -EINVAL;
+
+	mutex_lock(&vbif->mutex);
+	ret = _sde_vbif_setup_clk_force_ctrl(sde_kms, clk_ctrl, enable);
+	mutex_unlock(&vbif->mutex);
+
+	return ret;
 }
 
 #if IS_ENABLED(CONFIG_DEBUG_FS)

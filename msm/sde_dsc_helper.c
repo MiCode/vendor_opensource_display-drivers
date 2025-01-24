@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  */
 
@@ -8,7 +8,9 @@
 #include "msm_drv.h"
 #include "sde_dsc_helper.h"
 #include "sde_kms.h"
-
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_panel_id.h"
+#endif
 
 #define SDE_DSC_PPS_SIZE       128
 
@@ -61,6 +63,32 @@ static char sde_dsc_rc_range_min_qp[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 	{0, 2, 3, 4, 5, 5, 5, 6, 6, 7, 8, 8, 9, 11, 12},
 };
 
+#ifdef MI_DISPLAY_MODIFY
+/*
+ * Rate control - Min QP values for each ratio type in sde_dsc_ratio_type for NT37802
+ */
+static char sde_dsc_rc_range_min_qp_nvt[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
+	/* DSC v1.1 */
+	{0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5, 5, 5, 7, 13},
+	{0, 4, 5, 5, 7, 7, 7, 7, 7, 7, 9, 9, 9, 11, 17},
+	{0, 4, 5, 6, 7, 7, 7, 7, 7, 7, 9, 9, 9, 11, 15},
+	/* DSC v1.1 SCR and DSC v1.2 RGB 444 */
+	{0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5, 5, 5, 9, 12},
+	{0, 4, 5, 5, 7, 7, 7, 7, 7, 8, 9, 9, 9, 12, 16},
+	{0, 4, 5, 6, 7, 7, 7, 7, 7, 7, 9, 9, 9, 11, 15},
+	/* DSC v1.2 YUV422 */
+	{0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 5, 5, 5, 7, 11},
+	{0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 5, 5, 5, 7, 10},
+	{0, 4, 5, 6, 7, 7, 7, 7, 7, 7, 9, 9, 9, 11, 15},
+	{0, 2, 3, 4, 6, 7, 7, 7, 7, 7, 9, 9, 9, 11, 14},
+	{0, 2, 3, 4, 5, 5, 5, 6, 6, 7, 8, 8, 9, 11, 12},
+	/* DSC v1.2 YUV420 */
+	{0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5, 5, 5, 7, 10},
+	{0, 2, 3, 4, 6, 7, 7, 7, 7, 7, 9, 9, 9, 11, 14},
+	{0, 2, 3, 4, 5, 5, 5, 6, 6, 7, 8, 8, 9, 11, 12},
+};
+#endif
+
 /*
  * Rate control - Max QP values for each ratio type in sde_dsc_ratio_type
  */
@@ -85,6 +113,31 @@ static char sde_dsc_rc_range_max_qp[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 	{2, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13},
 	};
 
+#ifdef MI_DISPLAY_MODIFY
+/*
+ * Rate control - Max QP values for each ratio type in sde_dsc_ratio_type for NT37802
+ */
+static char sde_dsc_rc_range_max_qp_nvt[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
+	/* DSC v1.1 */
+	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11, 12, 13, 13, 15},
+	{4, 8, 9, 10, 11, 11, 11, 12, 13, 14, 15, 16, 17, 17, 19},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
+	/* DSC v1.1 SCR and DSC v1.2 RGB 444 */
+	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 10, 11, 11, 12, 13},
+	{8, 8, 9, 10, 11, 11, 11, 12, 13, 14, 14, 15, 15, 16, 17},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
+	/* DSC v1.2 YUV422 */
+	{3, 4, 5, 6, 7, 7, 7, 8, 9, 9, 10, 10, 11, 11, 12},
+	{2, 4, 5, 6, 7, 7, 7, 8, 8, 9, 9, 9, 9, 10, 11},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
+	{2, 5, 7, 8, 9, 10, 11, 12, 12, 13, 13, 13, 13, 14, 15},
+	{2, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13},
+	/* DSC v1.2 YUV420 */
+	{2, 4, 5, 6, 7, 7, 7, 8, 8, 9, 9, 9, 9, 10, 12},
+	{2, 5, 7, 8, 9, 10, 11, 12, 12, 13, 13, 13, 13, 14, 15},
+	{2, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13},
+};
+#endif
 /*
  * Rate control - bpg offset values for each ratio type in sde_dsc_ratio_type
  */
@@ -92,6 +145,56 @@ static char sde_dsc_rc_range_bpg[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 	/* DSC v1.1 */
 	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
 	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	/* DSC v1.1 SCR and DSC V1.2 RGB 444 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	/* DSC v1.2 YUV422 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{10, 8, 6, 4, 2, 0, -2, -4, -6, -8, -10, -10, -12, -12, -12},
+	/* DSC v1.2 YUV420 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{10, 8, 6, 4, 2, 0, -2, -4, -6, -8, -10, -10, -12, -12, -12},
+};
+
+#ifdef MI_DISPLAY_MODIFY
+/*
+* Rate control - bpg offset values for each ratio type in sde_dsc_ratio_type for NT37802
+*/
+static char sde_dsc_rc_range_bpg_nvt[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
+	/* DSC v1.1 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	/* DSC v1.1 SCR and DSC V1.2 RGB 444 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	/* DSC v1.2 YUV422 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12,-12},
+	{10, 8, 6, 4, 2, 0, -2, -4, -6, -8, -10, -10, -12, -12, -12},
+	/* DSC v1.2 YUV420 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
+	{10, 8, 6, 4, 2, 0, -2, -4, -6, -8, -10, -10, -12, -12, -12},
+};
+#endif
+
+/*
+ * Rate control - bpg offset override v1 values for each ratio type in sde_dsc_ratio_type
+ */
+static char sde_dsc_rc_range_bpg_override_v1[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
+	/* DSC v1.1 */
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
+	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
 	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -10, -12, -12, -12},
 	/* DSC v1.1 SCR and DSC V1.2 RGB 444 */
 	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
@@ -239,7 +342,12 @@ u8 _get_dsc_v1_2_bpg_offset(struct drm_dsc_config *dsc)
 		return (uncompressed_bpg_rate - (3 * bpp));
 }
 
+#ifdef MI_DISPLAY_MODIFY
+int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver, u64 mi_panel_id) {
+#else
 int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver) {
+#endif
+
 	int bpp, bpc;
 	int groups_per_line, groups_total;
 	int min_rate_buffer_size;
@@ -262,6 +370,8 @@ int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver) {
 			dsc->first_line_bpg_offset = 12;
 	} else if (dsc->dsc_version_minor == 0x2) {
 		dsc->first_line_bpg_offset = _get_dsc_v1_2_bpg_offset(dsc);
+		if(is_use_nt37802_dsc_config_o11u(mi_panel_id))
+			dsc->first_line_bpg_offset = 12;
 	}
 
 	dsc->rc_edge_factor = 6;
@@ -277,20 +387,48 @@ int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver) {
 	ratio_idx = _get_rc_table_index(dsc, scr_ver);
 	if ((ratio_idx < 0) || (ratio_idx >= DSC_RATIO_TYPE_MAX))
 		return -EINVAL;
-
 	for (i = 0; i < DSC_NUM_BUF_RANGES - 1; i++)
 		dsc->rc_buf_thresh[i] = sde_dsc_rc_buf_thresh[i];
 
 	for (i = 0; i < DSC_NUM_BUF_RANGES; i++) {
+#ifdef MI_DISPLAY_MODIFY
+		if (is_use_nt37802_dsc_config(mi_panel_id)) {
+			dsc->rc_range_params[i].range_min_qp =
+				sde_dsc_rc_range_min_qp_nvt[ratio_idx][i];
+		} else {
+			dsc->rc_range_params[i].range_min_qp =
+				sde_dsc_rc_range_min_qp[ratio_idx][i];
+		}
+
+		if (is_use_nt37802_dsc_config(mi_panel_id)) {
+			dsc->rc_range_params[i].range_max_qp =
+				sde_dsc_rc_range_max_qp_nvt[ratio_idx][i];
+		} else {
+			dsc->rc_range_params[i].range_max_qp =
+				sde_dsc_rc_range_max_qp[ratio_idx][i];
+		}
+
+		if (is_use_nt37802_dsc_config(mi_panel_id)) {
+			dsc->rc_range_params[i].range_bpg_offset =
+				sde_dsc_rc_range_bpg_nvt[ratio_idx][i];
+		} else {
+			dsc->rc_range_params[i].range_bpg_offset =
+				sde_dsc_rc_range_bpg[ratio_idx][i];
+		}
+#else
 		dsc->rc_range_params[i].range_min_qp =
 			sde_dsc_rc_range_min_qp[ratio_idx][i];
 		dsc->rc_range_params[i].range_max_qp =
 			sde_dsc_rc_range_max_qp[ratio_idx][i];
 		dsc->rc_range_params[i].range_bpg_offset =
 			sde_dsc_rc_range_bpg[ratio_idx][i];
+#endif
 	}
 
 	rc_param_lut = &sde_dsc_rc_init_param_lut[ratio_idx];
+	if (is_use_nt37802_dsc_config(mi_panel_id)) {
+		rc_param_lut->initial_xmit_delay = 256;
+	}
 	dsc->rc_quant_incr_limit0 = rc_param_lut->rc_quant_incr_limit0;
 	dsc->rc_quant_incr_limit1 = rc_param_lut->rc_quant_incr_limit1;
 	dsc->initial_offset = rc_param_lut->initial_fullness_offset;
@@ -327,6 +465,9 @@ int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver) {
 	hrd_delay = DIV_ROUND_UP(min_rate_buffer_size, bpp);
 
 	dsc->initial_dec_delay = hrd_delay - dsc->initial_xmit_delay;
+	if (is_use_nt37802_dsc_config(mi_panel_id)) {
+		dsc->initial_dec_delay = 478;
+	}
 
 	dsc->initial_scale_value = 8 * dsc->rc_model_size /
 			(dsc->rc_model_size - dsc->initial_offset);
@@ -381,6 +522,7 @@ int sde_dsc_populate_dsc_private_params(struct msm_display_dsc_info *dsc_info,
 	u16 bpc;
 	u32 bytes_in_dsc_pair;
 	u32 total_bytes_in_dsc_pair;
+	int i, ratio_idx;
 
 	if (!dsc_info || !dsc_info->config.slice_width ||
 			!dsc_info->config.slice_height ||
@@ -446,14 +588,23 @@ int sde_dsc_populate_dsc_private_params(struct msm_display_dsc_info *dsc_info,
 	dsc_info->bytes_per_pkt = bytes_in_slice * slice_per_pkt;
 	dsc_info->pkt_per_line = slice_per_intf / slice_per_pkt;
 
-	bytes_in_dsc_pair = DIV_ROUND_UP(bytes_in_slice * 2, 3);
-	if (bytes_in_dsc_pair % 8) {
+	bytes_in_dsc_pair = bytes_in_slice * 2;
+	dsc_info->dsc_4hsmerge_padding = 0;
+	dsc_info->dsc_4hsmerge_alignment = 0;
+
+	if (bytes_in_dsc_pair % 8)
 		dsc_info->dsc_4hsmerge_padding = 8 - (bytes_in_dsc_pair % 8);
-		total_bytes_in_dsc_pair = bytes_in_dsc_pair +
-				dsc_info->dsc_4hsmerge_padding;
-		if (total_bytes_in_dsc_pair % 16)
-			dsc_info->dsc_4hsmerge_alignment = 16 -
-					(total_bytes_in_dsc_pair % 16);
+
+	total_bytes_in_dsc_pair = bytes_in_dsc_pair + dsc_info->dsc_4hsmerge_padding;
+	if (total_bytes_in_dsc_pair % 16)
+		dsc_info->dsc_4hsmerge_alignment = 16 - (total_bytes_in_dsc_pair % 16);
+
+	if (dsc_info->rc_override_v1) {
+		ratio_idx = _get_rc_table_index(&dsc_info->config, dsc_info->scr_rev);
+		if (!((ratio_idx < 0) || (ratio_idx >= DSC_RATIO_TYPE_MAX)))
+			for (i = 0; i < DSC_NUM_BUF_RANGES; i++)
+				dsc_info->config.rc_range_params[i].range_bpg_offset =
+					sde_dsc_rc_range_bpg_override_v1[ratio_idx][i];
 	}
 
 	return 0;

@@ -46,6 +46,11 @@ void _dspp_aiqe_install_property(struct drm_crtc *crtc)
 
 	kms = get_kms(crtc);
 	catalog = kms->catalog;
+	if (!catalog->ssip_allowed) {
+		DRM_INFO("ssip_allowed = %d\n", catalog->ssip_allowed);
+		return;
+	}
+
 	version = catalog->dspp[0].sblk->aiqe.version;
 	major_version = version >> 16;
 	switch (major_version) {
@@ -61,7 +66,6 @@ void _dspp_aiqe_install_property(struct drm_crtc *crtc)
 			_sde_cp_create_local_blob(crtc, SDE_CP_CRTC_DSPP_MDNIE_ART,
 				sizeof(struct drm_msm_mdnie_art));
 		}
-
 		if (catalog->dspp[0].sblk->aiqe.ssrc_supported) {
 			_sde_cp_crtc_install_blob_property(crtc, "SDE_DSPP_AIQE_SSRC_CONFIG_V1",
 					SDE_CP_CRTC_DSPP_AIQE_SSRC_CONFIG,
@@ -76,6 +80,12 @@ void _dspp_aiqe_install_property(struct drm_crtc *crtc)
 				SDE_CP_CRTC_DSPP_COPR, 0, U64_MAX, 0);
 			_sde_cp_create_local_blob(crtc, SDE_CP_CRTC_DSPP_COPR,
 				sizeof(struct drm_msm_copr));
+		}
+		if (catalog->dspp[0].sblk->aiqe.abc_supported) {
+			_sde_cp_crtc_install_range_property(crtc, "SDE_DSPP_AIQE_ABC_V1",
+				SDE_CP_CRTC_DSPP_AIQE_ABC, 0, U64_MAX, 0);
+			_sde_cp_create_local_blob(crtc, SDE_CP_CRTC_DSPP_AIQE_ABC,
+				sizeof(struct drm_msm_abc));
 		}
 		break;
 	default:
@@ -138,8 +148,10 @@ int check_aiqe_ssrc_data(struct sde_hw_dspp *hw_dspp,
 {
 	int ret = 0;
 
-	if (!hw_dspp || !hw_dspp->ops.validate_aiqe_ssrc_data)
+	if (!hw_dspp)
 		ret = -EINVAL;
+	else if (!hw_dspp->ops.validate_aiqe_ssrc_data)
+		ret = 0;
 	else
 		ret = hw_dspp->ops.validate_aiqe_ssrc_data(hw_dspp, hw_cfg,
 				&sde_crtc->aiqe_top_level);
@@ -201,18 +213,24 @@ int set_copr_feature(struct sde_hw_dspp *hw_dspp,
 	return ret;
 }
 
-int sde_dspp_mdnie_read_art_done(struct sde_hw_dspp *hw_dspp, u32 *art_done)
+int set_aiqe_abc_feature(struct sde_hw_dspp *hw_dspp, struct sde_hw_cp_cfg *hw_cfg,
+			struct sde_crtc *hw_crtc)
 {
-	int rc;
+	int ret = 0;
 
-	if (!art_done || !hw_dspp || !hw_dspp->ops.read_mdnie_art_done)
-		return -EINVAL;
+	if (!hw_dspp)
+		ret = -EINVAL;
+	else if (!hw_dspp->ops.setup_aiqe_abc)
+		ret = 0;
+	else
+		hw_dspp->ops.setup_aiqe_abc(hw_dspp, hw_cfg, &hw_crtc->aiqe_top_level);
 
-	rc = hw_dspp->ops.read_mdnie_art_done(hw_dspp, art_done);
-	if (rc)
-		SDE_ERROR("invalid art read %d", rc);
+	if (ret)
+		DRM_ERROR("invalid params hw_dspp %pK dspp idx %d setup_aiqe_abc %pK\n",
+			hw_dspp, (hw_dspp) ? hw_dspp->idx : -1,
+			(hw_dspp) ? hw_dspp->ops.setup_aiqe_abc : NULL);
 
-	return rc;
+	return ret;
 }
 
 int sde_dspp_copr_read_status(struct sde_hw_dspp *hw_dspp,
@@ -241,8 +259,10 @@ void sde_set_mdnie_psr(struct sde_crtc *sde_crtc)
 	if (!sde_crtc || !hw_dspp)
 		return;
 
-	for (i = 0; i < num_mixers; i++)
-		hw_dspp->ops.setup_mdnie_psr(hw_dspp);
+	if (hw_dspp->ops.setup_mdnie_psr) {
+		for (i = 0; i < num_mixers; i++)
+			hw_dspp->ops.setup_mdnie_psr(hw_dspp);
+	}
 }
 
 void _dspp_ai_scaler_install_property(struct drm_crtc *crtc)
@@ -254,6 +274,11 @@ void _dspp_ai_scaler_install_property(struct drm_crtc *crtc)
 
 	kms = get_kms(crtc);
 	catalog = kms->catalog;
+	if (!catalog->ssip_allowed) {
+		DRM_INFO("ssip_allowed = %d\n", catalog->ssip_allowed);
+		return;
+	}
+
 	version = catalog->dspp[0].sblk->ai_scaler.version;
 	major_version = version >> 16;
 	snprintf(feature_name, ARRAY_SIZE(feature_name), "%s%d",

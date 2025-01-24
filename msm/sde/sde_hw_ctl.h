@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -12,6 +12,7 @@
 #include "sde_hw_catalog.h"
 #include "sde_hw_sspp.h"
 #include "sde_fence.h"
+#include "sde_cesta.h"
 
 #define INVALID_CTL_STATUS 0xfffff88e
 #define CTL_MAX_DSPP_COUNT (DSPP_MAX - DSPP_0)
@@ -162,6 +163,19 @@ struct sde_ctl_flush_cfg {
 	u32 active_lm_mask;
 };
 
+enum sde_ctl_cesta_flag {
+	SDE_CTL_CESTA_SCC_WAIT = BIT(0),
+	SDE_CTL_CESTA_CHN_WAIT = BIT(1),
+	SDE_CTL_CESTA_SCC_FLUSH = BIT(2),
+	SDE_CTL_CESTA_OVERRIDE_FLAG = BIT(3),
+};
+
+struct sde_ctl_cesta_cfg {
+	u32 index;
+	u32 flags;
+	enum sde_cesta_vote_state vote_state;
+};
+
 /**
  * struct sde_hw_ctl_ops - Interface to the wb Hw driver functions
  * Assumption is these functions will be called after clocks are enabled
@@ -169,9 +183,15 @@ struct sde_ctl_flush_cfg {
 struct sde_hw_ctl_ops {
 	/**
 	 * hw fence control
-	 * @ctx         : ctl path ctx pointer
+	 * @ctx            : ctl path ctx pointer
+	 * @sw_set         : sw override to be set
+	 * @sw_clear       : sw override to clear
+	 * @mode           : HW fence enable
+	 * @sw_avr_set     : AVR is enabled
+	 * @sw_arp_set     : ARP mode is enabled
 	 */
-	void (*hw_fence_ctrl)(struct sde_hw_ctl *ctx, bool sw_set, bool sw_clear, u32 mode);
+	void (*hw_fence_ctrl)(struct sde_hw_ctl *ctx, bool sw_set, bool sw_clear, u32 mode,
+		bool sw_avr_set, bool sw_arp_set);
 
 	/**
 	 * override to trigger the signal for the output hw-fence
@@ -471,6 +491,14 @@ struct sde_hw_ctl_ops {
 			enum ctl_hw_flush_type type, u32 blk_idx, bool enable);
 
 	/**
+	 * bitmask_has_bit: checks whether flush mask has given block set to flush
+	 * @type              : blk type to test
+	 * @blk_idx           : blk idx
+	 */
+	bool (*bitmask_has_bit)(struct sde_hw_ctl *ctx,
+			enum ctl_hw_flush_type type, u32 blk_idx);
+
+	/**
 	 * update_dnsc_blur_bitmask: updates dnsc_blur flush mask
 	 * @type              : blk type to flush
 	 * @blk_idx           : blk idx
@@ -484,6 +512,13 @@ struct sde_hw_ctl_ops {
 	 * @return	: bit mask with the active interfaces for the CTL
 	 */
 	u32 (*get_ctl_intf)(struct sde_hw_ctl *ctx);
+
+	/**
+	 * control the group setting in ctl_top.
+	 * @ctx		: ctl path ctx pointer
+	 * @enable	: flag to enable/disable group setting
+	 */
+	void (*update_ctl_top_group)(struct sde_hw_ctl *ctx, bool enable);
 
 	/**
 	 * read CTL layers register value and return
@@ -592,6 +627,26 @@ struct sde_hw_ctl_ops {
 	 * @Return: bitmap of enum sde_lm mixers found
 	 */
 	u32 (*get_active_lms)(struct sde_hw_ctl *ctx);
+
+	/**
+	 * Setup Cesta flush
+	 * @ctx: ctl path ctx pointer
+	 * @cfg: Cesta flush config settings
+	 */
+	void (*cesta_flush)(struct sde_hw_ctl *ctx, struct sde_ctl_cesta_cfg *cfg);
+
+	/**
+	 * Set ctl_path INTF master
+	 * @ctx          : ctl path ctx pointer
+	 * @intf_master  : Master Interface idx
+	 */
+	int (*set_intf_master)(struct sde_hw_ctl *ctx, u32 intf_master);
+
+	/**
+	 * Get ctl_path INTF master
+	 * @ctx   : ctl path ctx pointer
+	 */
+	int (*get_intf_master)(struct sde_hw_ctl *ctx);
 };
 
 /**

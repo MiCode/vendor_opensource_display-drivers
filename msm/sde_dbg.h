@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -43,6 +43,7 @@
 #define SDE_DBG_LUTDMA		BIT(3)
 #define SDE_DBG_VBIF_RT		BIT(4)
 #define SDE_DBG_DSI		BIT(5)
+#define SDE_DBG_SWFUSE		BIT(6)
 
 /* flags to enable the HW block debugbus dumping */
 #define SDE_DBG_SDE_DBGBUS	BIT(12)
@@ -205,7 +206,7 @@ struct sde_dbg_reglog_log {
 struct sde_dbg_reglog {
 	struct sde_dbg_reglog_log logs[SDE_REGLOG_ENTRY];
 	u32 first;
-	u32 last;
+	atomic64_t last;
 	u32 last_dump;
 	atomic64_t curr;
 	u32 next;

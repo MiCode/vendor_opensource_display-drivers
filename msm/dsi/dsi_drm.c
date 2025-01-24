@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -16,6 +16,14 @@
 #include "sde_dbg.h"
 #include "msm_drv.h"
 #include "sde_encoder.h"
+
+#ifdef MI_DISPLAY_MODIFY
+#include <drm/mi_disp.h>
+
+#include "mi_disp_print.h"
+#include "mi_dsi_display.h"
+#include "mi_panel_id.h"
+#endif
 
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
@@ -138,6 +146,16 @@ void dsi_convert_to_drm_mode(const struct dsi_display_mode *dsi_mode,
 	snprintf(drm_mode->name, DRM_DISPLAY_MODE_LEN, "%dx%dx%d%s",
 			drm_mode->hdisplay, drm_mode->vdisplay,
 			drm_mode_vrefresh(drm_mode), panel_caps);
+#ifdef MI_DISPLAY_MODIFY
+	if (dsi_mode->mi_timing.ddic_mode != DDIC_MODE_NORMAL) {
+		snprintf(drm_mode->name + strlen(drm_mode->name),
+				DRM_DISPLAY_MODE_LEN - strlen(drm_mode->name),
+				"@%dx%d%s",
+				dsi_mode->mi_timing.sf_refresh_rate,
+				dsi_mode->mi_timing.ddic_min_refresh_rate,
+				get_ddic_mode_name(dsi_mode->mi_timing.ddic_mode));
+	}
+#endif
 }
 
 static void dsi_convert_to_msm_mode(const struct dsi_display_mode *dsi_mode,
@@ -186,6 +204,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+#ifdef MI_DISPLAY_MODIFY
+	struct dsi_display *display;
+#endif
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
@@ -196,7 +217,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		DSI_ERR("Incorrect bridge details\n");
 		return;
 	}
-
+#ifdef MI_DISPLAY_MODIFY
+	display = c_bridge->display;
+#endif
 	if (bridge->encoder->crtc->state->active_changed)
 		atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
 
@@ -239,6 +262,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	if (rc)
 		DSI_ERR("Continuous splash pipeline cleanup failed, rc=%d\n",
 									rc);
+#ifdef MI_DISPLAY_MODIFY
+	sde_connector_update_panel_dead(display->drm_conn, !display->panel->panel_initialized);
+#endif
 }
 
 static void dsi_bridge_enable(struct drm_bridge *bridge)
@@ -276,6 +302,13 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 				true);
 		}
 	}
+#ifdef MI_DISPLAY_MODIFY
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, true);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display enable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
+#endif
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
@@ -293,7 +326,13 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 
 	if (display)
 		display->enabled = false;
-
+#ifdef MI_DISPLAY_MODIFY
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, false);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display disable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
+#endif
 	if (display && display->drm_conn) {
 		conn_state = to_sde_connector_state(display->drm_conn->state);
 		if (!conn_state) {
@@ -389,6 +428,9 @@ static void dsi_bridge_mode_set(struct drm_bridge *bridge,
 		DSI_ERR("invalid connector state\n");
 		return;
 	}
+#ifdef MI_DISPLAY_MODIFY
+	mi_sde_connector_state_get_mi_mode_info(&conn_state->base, &(c_bridge->dsi_mode.mi_timing));
+#endif
 
 	msm_parse_mode_priv_info(&conn_state->msm_mode,
 					&(c_bridge->dsi_mode));
@@ -533,6 +575,9 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 	dsi_mode.dsi_mode_flags = panel_dsi_mode->dsi_mode_flags;
 	dsi_mode.panel_mode_caps = panel_dsi_mode->panel_mode_caps;
 	dsi_mode.pixel_format_caps = panel_dsi_mode->pixel_format_caps;
+#ifdef MI_DISPLAY_MODIFY
+	memcpy(&dsi_mode.mi_timing, &panel_dsi_mode->mi_timing, sizeof(panel_dsi_mode->mi_timing));
+#endif
 	dsi_mode.timing.dsc_enabled = dsi_mode.priv_info->dsc_enabled;
 	dsi_mode.timing.dsc = &dsi_mode.priv_info->dsc;
 
@@ -661,6 +706,7 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 	mode_info->qsync_min_fps = dsi_mode->timing.qsync_min_fps;
 	mode_info->avr_step_fps = dsi_mode->timing.avr_step_fps;
 	mode_info->wd_jitter = dsi_mode->priv_info->wd_jitter;
+	mode_info->te_pulse_width_us = dsi_mode->timing.te_pulse_width_us;
 
 	memcpy(&mode_info->topology, &dsi_mode->priv_info->topology,
 			sizeof(struct msm_display_topology));
@@ -680,7 +726,7 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 			return rc;
 		}
 	}
-
+	mode_info->freq_step_list = &dsi_mode->priv_info->freq_step_list;
 	mode_info->clk_rate = dsi_mode->timing.clk_rate_hz;
 
 	if (dsi_mode->priv_info->dsc_enabled) {
@@ -710,6 +756,10 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 
 	mode_info->allowed_mode_switches =
 		dsi_mode->priv_info->allowed_mode_switch;
+#ifdef MI_DISPLAY_MODIFY
+	memcpy(&mode_info->mi_mode_info, &dsi_mode->mi_timing,
+				sizeof(dsi_mode->mi_timing));
+#endif
 
 	return 0;
 }
@@ -758,6 +808,25 @@ int dsi_conn_get_avr_step_fps(struct drm_connector_state *conn_state)
 	return priv_info->avr_step_fps;
 }
 
+int dsi_conn_dcs_cmd_tx(struct drm_connector_state *conn_state, enum dsi_cmd_set_type cmd)
+{
+	struct drm_connector *drm_conn;
+	struct sde_connector *sde_conn;
+	struct dsi_display *display;
+
+	drm_conn = conn_state->connector;
+	sde_conn = to_sde_connector(drm_conn);
+
+	if (!sde_conn)
+		return -EINVAL;
+
+	display = sde_conn->display;
+	if (!display)
+		return -EINVAL;
+
+	return dsi_display_dcs_cmd_tx(display, cmd);
+}
+
 int dsi_conn_set_info_blob(struct drm_connector *connector,
 		void *info, void *display, struct msm_mode_info *mode_info)
 {
@@ -801,6 +870,7 @@ int dsi_conn_set_info_blob(struct drm_connector *connector,
 	}
 
 	panel = dsi_display->panel;
+
 	sde_kms_info_add_keystr(info, "panel name", panel->name);
 
 	switch (panel->panel_mode) {
@@ -876,9 +946,13 @@ int dsi_conn_set_info_blob(struct drm_connector *connector,
 	sde_kms_info_add_keyint(info, "max os brightness", panel->bl_config.brightness_max_level);
 	sde_kms_info_add_keyint(info, "max panel backlight", panel->bl_config.bl_max_level);
 
-	if (panel->spr_info.enable)
+	if (panel->spr_info.enable) {
 		sde_kms_info_add_keystr(info, "spr_pack_type",
 			msm_spr_pack_type_str[panel->spr_info.pack_type]);
+
+		sde_kms_info_add_keystr(info, "spr_pack_type_mode",
+			msm_spr_pack_type_mode_str[panel->spr_info.pack_type_mode]);
+	}
 
 	if (mode_info && mode_info->roi_caps.enabled) {
 		sde_kms_info_add_keyint(info, "partial_update_num_roi",

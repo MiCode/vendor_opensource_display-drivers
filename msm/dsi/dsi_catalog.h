@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _DSI_CATALOG_H_
@@ -126,6 +126,12 @@ void dsi_phy_hw_v4_0_reset_clk_en_sel(struct dsi_phy_hw *phy);
 void dsi_phy_hw_v4_0_set_continuous_clk(struct dsi_phy_hw *phy, bool enable);
 void dsi_phy_hw_v4_0_commit_phy_timing(struct dsi_phy_hw *phy,
 		struct dsi_phy_per_lane_cfgs *timing);
+#ifdef MI_DISPLAY_MODIFY
+void dsi_phy_hw_v4_0_get_phy_timing(struct dsi_phy_hw *phy,
+		u32 *phy_timming, u32 size);
+#endif
+void dsi_phy_hw_v4_0_phy_idle_off(struct dsi_phy_hw *phy,
+				struct dsi_phy_cfg *cfg);
 
 /* Definitions for 4nm PHY hardware driver */
 void dsi_phy_hw_v5_0_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *cfg);
@@ -144,6 +150,10 @@ void dsi_phy_hw_v5_0_reset_clk_en_sel(struct dsi_phy_hw *phy);
 void dsi_phy_hw_v5_0_set_continuous_clk(struct dsi_phy_hw *phy, bool enable);
 void dsi_phy_hw_v5_0_commit_phy_timing(struct dsi_phy_hw *phy,
 		struct dsi_phy_per_lane_cfgs *timing);
+#ifdef MI_DISPLAY_MODIFY
+void dsi_phy_hw_v5_0_get_phy_timing(struct dsi_phy_hw *phy,
+		u32 *phy_timming, u32 size);
+#endif
 
 /* Definitions for 3nm PHY hardware driver */
 void dsi_phy_hw_v7_2_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *cfg);
@@ -162,6 +172,10 @@ void dsi_phy_hw_v7_2_reset_clk_en_sel(struct dsi_phy_hw *phy);
 void dsi_phy_hw_v7_2_set_continuous_clk(struct dsi_phy_hw *phy, bool enable);
 void dsi_phy_hw_v7_2_commit_phy_timing(struct dsi_phy_hw *phy,
 		struct dsi_phy_per_lane_cfgs *timing);
+#ifdef MI_DISPLAY_MODIFY
+void dsi_phy_hw_v7_2_get_phy_timing(struct dsi_phy_hw *phy,
+		u32 *phy_timming, u32 size);
+#endif
 
 /* DSI controller common ops */
 u32 dsi_ctrl_hw_cmn_get_interrupt_status(struct dsi_ctrl_hw *ctrl);
@@ -199,6 +213,10 @@ void dsi_ctrl_hw_cmn_setup_avr(struct dsi_ctrl_hw *ctrl, bool enable);
 
 void dsi_ctrl_hw_cmn_set_video_timing(struct dsi_ctrl_hw *ctrl,
 			 struct dsi_mode_info *mode);
+#ifdef MI_DISPLAY_MODIFY
+u32 dsi_ctrl_hw_cmn_get_video_timing(struct dsi_ctrl_hw *ctrl,
+			 const char *type);
+#endif
 void dsi_ctrl_hw_cmn_set_timing_db(struct dsi_ctrl_hw *ctrl,
 				     bool enable);
 void dsi_ctrl_hw_cmn_cmd_engine_setup(struct dsi_ctrl_hw *ctrl,
@@ -242,7 +260,8 @@ u32 dsi_ctrl_hw_cmn_get_cmd_read_data(struct dsi_ctrl_hw *ctrl,
 				     u32 rx_byte,
 				     u32 pkt_size, u32 *hw_read_cnt);
 void dsi_ctrl_hw_cmn_clear_rdbk_reg(struct dsi_ctrl_hw *ctrl);
-void dsi_ctrl_hw_22_schedule_dma_cmd(struct dsi_ctrl_hw *ctrl, int line_on);
+void dsi_ctrl_hw_22_schedule_dma_cmd(struct dsi_ctrl_hw *ctrl, int line_on,
+			bool do_peripheral_flush);
 int dsi_ctrl_hw_cmn_ctrl_reset(struct dsi_ctrl_hw *ctrl,
 			int mask);
 void dsi_ctrl_hw_cmn_mask_error_intr(struct dsi_ctrl_hw *ctrl, u32 idx,
@@ -252,7 +271,8 @@ u32 dsi_ctrl_hw_cmn_get_error_mask(struct dsi_ctrl_hw *ctrl);
 u32 dsi_ctrl_hw_cmn_get_hw_version(struct dsi_ctrl_hw *ctrl);
 int dsi_ctrl_hw_cmn_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl_hw *ctrl);
 void dsi_ctrl_hw_cmn_init_cmddma_trig_ctrl(struct dsi_ctrl_hw *ctrl,
-					   struct dsi_host_common_cfg *cfg);
+					   struct dsi_host_common_cfg *cfg,
+					   bool do_peripheral_flush);
 
 /* Definitions specific to 1.4 DSI controller hardware */
 int dsi_ctrl_hw_14_wait_for_lane_idle(struct dsi_ctrl_hw *ctrl, u32 lanes);

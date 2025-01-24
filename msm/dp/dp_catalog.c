@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -2970,7 +2970,7 @@ static void dp_catalog_set_exe_mode(struct dp_catalog *dp_catalog, char *mode)
 	catalog = container_of(dp_catalog, struct dp_catalog_private,
 		dp_catalog);
 
-	strlcpy(catalog->exe_mode, mode, sizeof(catalog->exe_mode));
+	strscpy(catalog->exe_mode, mode, sizeof(catalog->exe_mode));
 
 	if (!strcmp(catalog->exe_mode, "hw"))
 		catalog->parser->clear_io_buf(catalog->parser);
@@ -3147,7 +3147,7 @@ struct dp_catalog *dp_catalog_get(struct device *dev, struct dp_parser *parser)
 
 	dp_catalog_get_io(catalog);
 
-	strlcpy(catalog->exe_mode, "hw", sizeof(catalog->exe_mode));
+	strscpy(catalog->exe_mode, "hw", sizeof(catalog->exe_mode));
 
 	if (parser->valid_lt_params) {
 		ctrl.swing_hbr2_3 = parser->swing_hbr2_3;

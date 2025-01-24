@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -17,6 +17,7 @@
 #include <drm/drm_bridge.h>
 
 #include "msm_drv.h"
+#include "sde_cesta.h"
 #include "dsi_defs.h"
 #include "dsi_ctrl.h"
 #include "dsi_phy.h"
@@ -178,6 +179,7 @@ struct dsi_display_ext_bridge {
  * @ulps_enabled:     ulps state.
  * @clamp_enabled:    clamp state.
  * @phy_idle_power_off:   PHY power state.
+ * @twm_enabled:      Boolean to indicate twm enabled.
  * @host:             DRM MIPI DSI Host.
  * @bridge:           Pointer to DRM bridge object.
  * @cmd_engine_refcount:  Reference count enforcing single instance of cmd eng
@@ -254,6 +256,7 @@ struct dsi_display {
 	bool ulps_enabled;
 	bool clamp_enabled;
 	bool phy_idle_power_off;
+	bool twm_enabled;
 	struct drm_gem_object *tx_cmd_buf;
 	u32 cmd_buffer_size;
 	u64 cmd_buffer_iova;
@@ -307,6 +310,7 @@ struct dsi_display {
 	bool enabled;
 };
 
+
 int dsi_display_dev_probe(struct platform_device *pdev);
 int dsi_display_dev_remove(struct platform_device *pdev);
 
@@ -348,11 +352,12 @@ void dsi_display_set_active_state(struct dsi_display *display, bool is_active);
  * @display:            Handle to the display.
  * @encoder:            Pointer to the encoder object which is connected to the
  *			display.
+ * @cesta_client:	Pointer to the display cesta client.
  *
  * Return: error code.
  */
 int dsi_display_drm_bridge_init(struct dsi_display *display,
-		struct drm_encoder *enc);
+		struct drm_encoder *enc, struct sde_cesta_client *cesta_client);
 
 /**
  * dsi_display_drm_bridge_deinit() - destroys DRM bridge for the display
@@ -636,7 +641,18 @@ int dsi_display_set_tpg_state(struct dsi_display *display, bool enable,
 		u32 init_val,
 		enum dsi_ctrl_tpg_pattern pattern);
 
+/**
+ * dsi_display_set_lp2_load() - Add or remove LP2 load on DSI display supplies.
+ * @display:		Handle to display.
+ * @enable:		Boolean to control whether to add or remove
+ * the LP2 load.
+ *
+ * Return: error code.
+ */
+int dsi_display_set_lp2_load(struct dsi_display *display, bool enable);
+
 int dsi_display_clock_gate(struct dsi_display *display, bool enable);
+
 int dsi_dispaly_static_frame(struct dsi_display *display, bool enable);
 
 /**
@@ -691,14 +707,15 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 
 /**
  * dsi_display_cmd_transfer() - transfer command to the panel
- * @connector:          Pointer to drm connector structure
- * @display:            Handle to display.
- * @cmd_buf:            Command buffer
- * @cmd_buf_len:        Command buffer length in bytes
+ * @connector:           Pointer to drm connector structure
+ * @display:             Handle to display.
+ * @cmd_buf:             Command buffer
+ * @cmd_buf_len:         Command buffer length in bytes
+ * @do_peripheral_flush: Flag for sending this command with peripheral flush
  */
 int dsi_display_cmd_transfer(struct drm_connector *connector,
 		void *display, const char *cmd_buffer,
-		u32 cmd_buf_len);
+		u32 cmd_buf_len, bool do_peripheral_flush);
 
 /**
  * dsi_display_cmd_receive() - receive response from the panel
@@ -742,6 +759,14 @@ int dsi_display_soft_reset(void *display);
  */
 int dsi_display_set_power(struct drm_connector *connector,
 		int power_mode, void *display);
+
+/*
+ * dsi_display_dcs_cmd_tx - send arbitrary DCS command to panel
+ * @display: Pointer to private display structure
+ * @cmd: Enum identifying the command
+ * Returns: Zero on success
+ */
+int dsi_display_dcs_cmd_tx(struct dsi_display *display, enum dsi_cmd_set_type cmd);
 
 /*
  * dsi_display_pre_kickoff - program kickoff-time features
@@ -930,4 +955,38 @@ int dsi_display_phy_pll_toggle(void *priv, bool enable);
  * Return: True if continuous splash or trusted vm environment
  */
 bool is_skip_op_required(struct dsi_display *display);
+
+#ifdef MI_DISPLAY_MODIFY
+char *mi_dsi_display_get_cmdline_panel_info(struct dsi_display *display);
+int dsi_display_cmd_rx(struct dsi_display *display, struct dsi_cmd_desc *cmd);
+int dsi_display_ctrl_get_host_init_state(struct dsi_display *dsi_display, bool *state);
+#endif
+/**
+ * dsi_display_set_clk_state() - set clk state request from MDP
+ * @display:     Handle to display
+ * @clk_type:   Clock which is being controlled.
+ * @clk_state:  Desired state of clock
+ *
+ * return: error code in case of failure or 0 for success.
+ */
+int dsi_display_set_clk_state(void *display, u32 clk_type, u32 clk_state);
+
+/**
+ * dsi_display_get_clk_rate() - get clk rate
+ * @display:    Handle to display
+ * @idx:        DSI controller index
+ * @clk_type:   Clock which whose rate is being retrieved
+ * @clk_state:  Pointer to which clock rate will be written on success
+ *
+ * return: error code in case of failure or 0 for success.
+ */
+int dsi_display_get_clk_rate(void *display, u32 idx, u32 clk_type, u64 *clk_rate);
+
+/**
+ * dsi_display_set_idle_pc_state() - set idle pc state
+ * @display:    Handle to display
+ * @idle_pc:    Idle power collapse status
+ */
+void dsi_display_set_idle_pc_state(void *display, bool idle_pc);
+
 #endif /* _DSI_DISPLAY_H_ */

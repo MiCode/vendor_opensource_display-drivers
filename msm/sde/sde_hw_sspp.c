@@ -123,6 +123,16 @@
 #define SSPP_LINE_INSERTION_CTRL           0x1E0
 #define SSPP_LINE_INSERTION_OUT_SIZE       0x1E8
 
+/* SSPP_MULTIRECT_EXTN*/
+#define SSPP_OUT_SIZE_REC2                 0x300
+#define SSPP_OUT_XY_REC2                   0x304
+#define SSPP_SRC_XY_REC2                   0x308
+#define SSPP_SRC_SIZE_REC2                 0x30C
+#define SSPP_OUT_SIZE_REC3                 0x310
+#define SSPP_OUT_XY_REC3                   0x314
+#define SSPP_SRC_XY_REC3                   0x318
+#define SSPP_SRC_SIZE_REC3                 0x31C
+
 #define SSPP_CAC_CTRL                      0x328
 #define SSPP_SW_PIX_EXT_C2_LR              0x320
 #define SSPP_SW_PIX_EXT_C2_TB              0x324
@@ -336,9 +346,9 @@ static void sde_hw_sspp_setup_ubwc(struct sde_hw_pipe *ctx, struct sde_hw_blk_re
 		ubwc_ctrl_off = SSPP_UBWC_STATIC_CTRL_REC1;
 
 	if (SDE_HW_MAJOR(ctx->catalog->ubwc_rev) >= SDE_HW_MAJOR(SDE_HW_UBWC_VER_50)) {
-		ctrl_val |= SDE_FORMAT_IS_YUV(fmt) ? 0 : BIT(30);
-		ctrl_val |= SDE_FORMAT_IS_UBWC_LOSSY_2_1(fmt) ? ((0x3 << 16) | BIT(31)) : 0;
-		ctrl_val |= SDE_FORMAT_IS_UBWC_LOSSY_8_5(fmt) ? (BIT(16) | BIT(31)) : 0;
+		ctrl_val |= SDE_FORMAT_IS_YUV(fmt) ? 0 : (BIT(31) | BIT(30));
+		ctrl_val |= SDE_FORMAT_IS_UBWC_LOSSY_2_1(fmt) ? (0x3 << 16) : 0;
+		ctrl_val |= SDE_FORMAT_IS_UBWC_LOSSY_8_5(fmt) ? BIT(16) : 0;
 		SDE_REG_WRITE(c, ubwc_ctrl_off, ctrl_val);
 	} else if (IS_UBWC_40_SUPPORTED(ctx->catalog->ubwc_rev)) {
 		SDE_REG_WRITE(c, ubwc_ctrl_off, SDE_FORMAT_IS_YUV(fmt) ? 0 : BIT(30));
@@ -821,8 +831,10 @@ static void sde_hw_sspp_setup_rects(struct sde_hw_pipe *ctx,
 	struct sde_hw_blk_reg_map *c;
 	u32 src_size, src_xy, dst_size, dst_xy, ystride0, ystride1;
 	u32 src_size_off, src_xy_off, out_size_off, out_xy_off;
+	u32 src_size_ext_off, src_xy_ext_off, out_size_ext_off, out_xy_ext_off;
+	u32 src_extn_size, src_extn_xy, dst_extn_size, dst_extn_xy;
 	u32 decimation = 0;
-	u32 idx;
+	u32 idx, opmode, mask_extn = 0;
 
 	if (_sspp_subblk_offset(ctx, SDE_SSPP_SRC, &idx) || !cfg)
 		return;
@@ -888,6 +900,43 @@ static void sde_hw_sspp_setup_rects(struct sde_hw_pipe *ctx,
 	SDE_REG_WRITE(c, SSPP_SRC_YSTRIDE0 + idx, ystride0);
 	SDE_REG_WRITE(c, SSPP_SRC_YSTRIDE1 + idx, ystride1);
 	SDE_REG_WRITE(c, SSPP_DECIMATION_CONFIG + idx, decimation);
+
+	if (rect_index == SDE_SSPP_RECT_SOLO)
+		return;
+
+	src_extn_size = (cfg->src_rect_extn.h << 16) | (cfg->src_rect_extn.w);
+	dst_extn_size = (cfg->dst_rect_extn.h << 16) | (cfg->dst_rect_extn.w);
+	src_extn_xy = (cfg->src_rect_extn.y << 16) | (cfg->src_rect_extn.x);
+	dst_extn_xy = (cfg->dst_rect_extn.y << 16) | (cfg->dst_rect_extn.x);
+
+	opmode = SDE_REG_READ(c, SSPP_MULTIRECT_OPMODE + idx);
+
+	if (rect_index == SDE_SSPP_RECT_0) {
+		mask_extn = BIT(8);
+		src_size_ext_off = SSPP_SRC_SIZE_REC2;
+		src_xy_ext_off = SSPP_SRC_XY_REC2;
+		out_size_ext_off = SSPP_OUT_SIZE_REC2;
+		out_xy_ext_off = SSPP_OUT_XY_REC2;
+	} else {
+		mask_extn = BIT(9);
+		src_size_ext_off = SSPP_SRC_SIZE_REC3;
+		src_xy_ext_off = SSPP_SRC_XY_REC3;
+		out_size_ext_off = SSPP_OUT_SIZE_REC3;
+		out_xy_ext_off = SSPP_OUT_XY_REC3;
+	}
+
+	if (!src_extn_size && !dst_extn_size) {
+		opmode &= ~mask_extn;
+		SDE_REG_WRITE(c, SSPP_MULTIRECT_OPMODE + idx, opmode);
+		return;
+	}
+
+	opmode |= mask_extn;
+	SDE_REG_WRITE(c, SSPP_MULTIRECT_OPMODE + idx, opmode);
+	SDE_REG_WRITE(c, src_size_ext_off + idx, src_extn_size);
+	SDE_REG_WRITE(c, src_xy_ext_off + idx, src_extn_xy);
+	SDE_REG_WRITE(c, out_size_ext_off + idx, dst_extn_size);
+	SDE_REG_WRITE(c, out_xy_ext_off + idx, dst_extn_xy);
 }
 
 /**
@@ -1543,12 +1592,13 @@ static void sde_hw_sspp_setup_cac(struct sde_hw_pipe *ctx, u32 cac_mode)
 	if (_sspp_subblk_offset(ctx, SDE_SSPP_SRC, &idx))
 		return;
 
+	opmode = SDE_REG_READ(&ctx->hw, SSPP_CAC_CTRL + idx);
 	if (cac_mode == SDE_CAC_UNPACK)
-		opmode = BIT(8);
+		opmode |= BIT(8);
 	else if (cac_mode == SDE_CAC_FETCH)
-		opmode = BIT(0) | BIT(8);
+		opmode |= BIT(0) | BIT(8);
 	else
-		opmode = 0;
+		opmode &= ~(BIT(0) | BIT(8));
 
 	SDE_REG_WRITE(&ctx->hw, SSPP_CAC_CTRL + idx, opmode);
 }

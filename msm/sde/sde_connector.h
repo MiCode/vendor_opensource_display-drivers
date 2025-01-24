@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -15,6 +15,10 @@
 #include "msm_prop.h"
 #include "sde_kms.h"
 #include "sde_fence.h"
+#include "dsi_display.h"
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_sde_connector.h"
+#endif
 
 #define SDE_CONNECTOR_NAME_SIZE	16
 #define SDE_CONNECTOR_DHDR_MEMPOOL_MAX_SIZE	SZ_32
@@ -221,6 +225,23 @@ struct sde_connector_ops {
 	int (*clk_ctrl)(void *handle, u32 type, u32 state);
 
 	/**
+	 * clk_get_rate - get DSI managed clock's rate by type and interface index
+	 * @handle: Pointer to DSI display
+	 * @idx: Interface index
+	 * @clk_type: Type of clock
+	 * @clk_rate: Clock rate is placed here
+	 * Returns: Zero on success
+	 */
+	int (*clk_get_rate)(void *handle, u32 idx, u32 clk_type, u64 *clk_rate);
+
+	/**
+	 * idle_pc_ctrl - inform DSI of the idle PC status
+	 * @display: Pointer to display struct
+	 * @idle_pc: Idle power collapse status
+	 */
+	void (*idle_pc_ctrl)(void *display, bool idle_pc);
+
+	/**
 	 * set_power - update dpms setting
 	 * @connector: Pointer to drm connector structure
 	 * @power_mode: One of the following,
@@ -275,11 +296,12 @@ struct sde_connector_ops {
 	 * @display: Pointer to private display handle
 	 * @cmd_buf: Command buffer
 	 * @cmd_buf_len: Command buffer length in bytes
+	 * @do_peripheral_flush: Flag for sending this command with peripheral flush
 	 * Returns: Zero for success, negetive for failure
 	 */
 	int (*cmd_transfer)(struct drm_connector *connector,
 			void *display, const char *cmd_buf,
-			u32 cmd_buf_len);
+			u32 cmd_buf_len, bool do_peripheral_flush);
 	/**
 	 * cmd_receive - Receive the response from the connected display panel
 	 * @display: Pointer to private display handle
@@ -415,6 +437,14 @@ struct sde_connector_ops {
 	int (*get_avr_step_fps)(struct drm_connector_state *conn_state);
 
 	/**
+	 * dcs_cmd_tx - Arbitrary command using the DSI enum
+	 * @conn_state: Pointer to drm_connector_state structure
+	 * @cmd: Enum identifying the command
+	 * Returns: Zero on success
+	 */
+	int (*dcs_cmd_tx)(struct drm_connector_state *conn_state, enum dsi_cmd_set_type cmd);
+
+	/**
 	 * set_submode_info - populate given sub mode blob
 	 * @connector: Pointer to drm connector structure
 	 * @info: Pointer to sde connector info structure
@@ -446,6 +476,24 @@ struct sde_connector_ops {
 	 */
 	int (*get_panel_scan_line)(void *display, u16 *scan_line, ktime_t *scan_line_ts);
 
+};
+
+/**
+ * enum sde_conn_vrr_cmd_state: states of vrr commands
+ * @VRR_CMD_STATE_NONE: no-op
+ * @VRR_CMD_POWER_ON: handle vrr commands at power on
+ * @VRR_CMD_POWER_OFF: handle vrr commands at power off
+ * @VRR_CMD_IDLE_ENTRY: handle vrr commands at idle pc enter
+ * @VRR_CMD_IDLE_EXIT: handle vrr commands at idle pc exit
+ * @VRR_CMD_FIRST_SELF_REFRESH: handle vrr commands at first SR
+ */
+enum sde_conn_vrr_cmd_state {
+	VRR_CMD_STATE_NONE,
+	VRR_CMD_POWER_ON,
+	VRR_CMD_POWER_OFF,
+	VRR_CMD_IDLE_ENTRY,
+	VRR_CMD_IDLE_EXIT,
+	VRR_CMD_FIRST_SELF_REFRESH
 };
 
 /**
@@ -515,6 +563,26 @@ struct sde_misr_sign {
 };
 
 /**
+ * struct sde_backlight_vrr_update - smooth dimming backlight structure for vrr
+ * @new_brightness : New brightness value
+ * @prev_brightness : Previous brightness value
+ * @new_bl_lvl : New backlight level value
+ * @prev_bl_lvl : Previous backlight level value
+ * @bl_frame_idx : Index value of dimming frame
+ * @bl_update_in_progress : Smooth dimming in progress
+ * @prev_bl_time_ns : Time in ns when previous BL was sent
+ */
+struct sde_backlight_vrr_update {
+	int new_brightness;
+	int prev_brightness;
+	u32 new_bl_lvl;
+	u32 prev_bl_lvl;
+	u32 bl_frame_idx;
+	bool bl_update_in_progress;
+	u64 prev_bl_time_ns;
+};
+
+/**
  * struct sde_connector - local sde connector structure
  * @base: Base drm connector structure
  * @connector_type: Set to one of DRM_MODE_CONNECTOR_ types
@@ -551,6 +619,7 @@ struct sde_misr_sign {
  * @expected_panel_mode: expected panel mode by usespace
  * @panel_dead: Flag to indicate if panel has gone bad
  * @esd_status_check: Flag to indicate if ESD thread is scheduled or not
+ * @twm_en: Flag to indicate if TWM mode is enabled or not.
  * @bl_scale_dirty: Flag to indicate PP BL scale value(s) is changed
  * @bl_scale: BL scale value for ABA feature
  * @bl_scale_sv: BL scale value for sunlight visibility feature
@@ -565,9 +634,18 @@ struct sde_misr_sign {
  * @lm_mask: preferred LM mask for connector
  * @allow_bl_update: Flag to indicate if BL update is allowed currently or not
  * @dimming_bl_notify_enabled: Flag to indicate if dimming bl notify is enabled or not
+ * @sde_backlight_vrr_update: Smooth dimming backlight structure for vrr
  * @qsync_mode: Cached Qsync mode, 0=disabled, 1=continuous mode
  * @qsync_updated: Qsync settings were updated
  * @ept_fps: ept fps is updated, 0 means ept_fps is disabled
+ * @frame_interval: Current frame interval
+ * @usecase_idx: Current usecase_idx
+ * @freq_pattern: Current frequency pattern to be used
+ * @vrr_caps: defines capabilities of vrr
+ * @freq_pattern_updated: True if frequency pattern is updated
+ * @freq_pattern_type_changed: True if frequency pattern type is updated
+ * @vrr_cmd_state: Scenario in which VRR cmd is sent
+ * @num_bl_frames: Number of frames needed for incremental dimming
  * @colorspace_updated: Colorspace property was updated
  * @last_cmd_tx_sts: status of the last command transfer
  * @hdr_capable: external hdr support present
@@ -601,6 +679,10 @@ struct sde_connector {
 	int dpms_mode;
 	int lp_mode;
 	int last_panel_power_mode;
+#ifdef MI_DISPLAY_MODIFY
+	int max_esd_check_power_mode;
+#endif
+	struct device *sysfs_dev;
 
 	struct msm_property_info property_info;
 	struct msm_property_data property_data[CONNECTOR_PROP_COUNT];
@@ -610,6 +692,9 @@ struct sde_connector {
 	struct drm_property_blob *blob_dither;
 	struct drm_property_blob *blob_mode_info;
 	struct drm_property_blob *blob_panel_id;
+#ifdef MI_DISPLAY_MODIFY
+	struct drm_property_blob *blob_mi_mode_info;
+#endif
 
 	struct sde_connector_evt event_table[SDE_CONN_EVENT_COUNT];
 	spinlock_t event_lock;
@@ -622,6 +707,7 @@ struct sde_connector {
 	u32 esd_status_interval;
 	bool panel_dead;
 	bool esd_status_check;
+	bool twm_en;
 	enum panel_op_mode expected_panel_mode;
 
 	bool bl_scale_dirty;
@@ -630,6 +716,7 @@ struct sde_connector {
 	u32 unset_bl_level;
 	bool allow_bl_update;
 	bool dimming_bl_notify_enabled;
+	struct sde_backlight_vrr_update bl_vrr;
 
 	u32 hdr_eotf;
 	bool hdr_metadata_type_one;
@@ -645,6 +732,15 @@ struct sde_connector {
 	u32 qsync_mode;
 	bool qsync_updated;
 	u32 ept_fps;
+
+	u32 frame_interval;
+	u32 usecase_idx;
+	struct msm_freq_step_pattern *freq_pattern;
+	struct msm_vrr_capabilities vrr_caps;
+	bool freq_pattern_updated;
+	bool freq_pattern_type_changed;
+	enum sde_conn_vrr_cmd_state vrr_cmd_state;
+	u32 num_bl_frames;
 
 	bool colorspace_updated;
 
@@ -788,6 +884,21 @@ struct sde_connector_state {
 #define sde_connector_get_out_fb(S) \
 	((S) ? to_sde_connector_state((S))->out_fb : 0)
 
+#ifdef MI_DISPLAY_MODIFY
+/**
+ * sde_connector_update_panel_dead - update connector panel_dead property
+ * @conn: pointer to drm connector
+ * @is_dead: bool to set panel_dead property
+ */
+void sde_connector_update_panel_dead(struct drm_connector *conn, bool is_dead);
+
+/*
+ * _sde_connector_report_panel_dead - report panel dead notification
+ * @sde_conn:    Pointer to sde connector structure
+ * @skip_pre_kickoff: boolean to skip pre kickoff
+ */
+void _sde_connector_report_panel_dead(struct sde_connector *conn, bool skip_pre_kickoff);
+#endif
 /**
  * sde_connector_get_kms - helper to get sde_kms from connector
  * @conn: Pointer to drm connector
@@ -936,6 +1047,16 @@ int sde_connector_set_property_for_commit(struct drm_connector *connector,
 		uint32_t property_idx, uint64_t value);
 
 /**
+ * sde_connector_post_init - update connector object with post
+ * initialization.
+ * It can update the debugfs, sysfs, entries
+ * @dev: Pointer to drm device struct
+ * @conn: Pointer to drm connector
+ * Returns: Zero on success
+ */
+int sde_connector_post_init(struct drm_device *dev, struct drm_connector *conn);
+
+/**
  * sde_connector_init - create drm connector object for a given display
  * @dev: Pointer to drm device struct
  * @encoder: Pointer to associated encoder
@@ -999,9 +1120,36 @@ int sde_connector_get_info(struct drm_connector *connector,
  * sde_connector_clk_ctrl - enables/disables the connector clks
  * @connector: Pointer to drm connector object
  * @enable: true/false to enable/disable
+ * @idle_pc: Idle power collapse status
  * Returns: Zero on success
  */
-int sde_connector_clk_ctrl(struct drm_connector *connector, bool enable);
+int sde_connector_clk_ctrl(struct drm_connector *connector, bool enable, bool idle_pc);
+
+/**
+ * sde_connector_esync_clk_ctrl - enables/disables the esync clk
+ * @connector: Pointer to drm connector object
+ * @enable: true/false to enable/disable
+ * Returns: Zero on success
+ */
+int sde_connector_esync_clk_ctrl(struct drm_connector *connector, bool enable);
+
+/**
+ * sde_connector_osc_clk_ctrl - enables/disables the oscillator clk
+ * @connector: Pointer to drm connector object
+ * @enable: true/false to enable/disable
+ * Returns: Zero on success
+ */
+int sde_connector_osc_clk_ctrl(struct drm_connector *connector, bool enable);
+
+/**
+ * sde_connector_clk_get_rate_esync - retrieves esync clk rate
+ * @connector: Pointer to drm connector object
+ * @intf_idx: index of interface whose esync clk rate is requested
+ * @rate: pointer at which the rate will be written on success
+ * Returns: Zero on success
+ */
+int sde_connector_clk_get_rate_esync(struct drm_connector *connector,
+		enum sde_intf intf_idx, u64 *rate);
 
 /**
  * sde_connector_get_dpms - query dpms setting
@@ -1020,6 +1168,24 @@ int sde_connector_get_dpms(struct drm_connector *connector);
  * It must only be called once per frame update for the given connector.
  */
 void sde_connector_set_qsync_params(struct drm_connector *connector);
+
+/**
+ * sde_connector_set_vrr_params - set status of vrr params
+ * @connector: pointer to drm connector
+ */
+void sde_connector_set_vrr_params(struct drm_connector *connector);
+
+/**
+ * sde_connector_trigger_cmd_self_refresh - set status of vrr params
+ * @connector: pointer to drm connector
+ */
+int sde_connector_trigger_cmd_self_refresh(struct drm_connector *connector);
+
+/**
+ * sde_connector_trigger_cmd_backlight_update - update backlight
+ * @connector: pointer to drm connector
+ */
+int sde_connector_trigger_cmd_backlight_update(struct drm_connector *connector);
 
 /**
  * sde_connector_complete_qsync_commit - callback signalling completion
@@ -1395,5 +1561,14 @@ bool sde_connector_is_line_insertion_supported(struct sde_connector *sde_conn);
  * @Return: pointer to dsi display
  */
 struct dsi_display *_sde_connector_get_display(struct sde_connector *c_conn);
+
+/**
+ * sde_connector_update_cmd - send the commands listed in cmd_bit_mask
+ * @connector: Pointer to sde connector struct
+ * @cmd_bit_mask: Bit mask of commands to be sent
+ * @peripheral_flush: True if command needs to sent at flush
+ */
+int sde_connector_update_cmd(struct drm_connector *connector,
+		u64 cmd_bit_mask, bool peripheral_flush);
 
 #endif /* _SDE_CONNECTOR_H_ */

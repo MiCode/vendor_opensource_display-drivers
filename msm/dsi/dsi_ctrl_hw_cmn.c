@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -528,8 +528,94 @@ void dsi_ctrl_hw_cmn_set_video_timing(struct dsi_ctrl_hw *ctrl,
 	DSI_W32(ctrl, DSI_DSI_TIMING_FLUSH, 0x1);
 	DSI_CTRL_HW_DBG(ctrl, "ctrl video parameters updated\n");
 	SDE_EVT32(v_total, h_total);
-}
 
+	if (mode->esync_enabled) {
+		/* Skip extended VFP blanking lines over DSI lanes */
+		DSI_W32(ctrl, DSI_VIDEO_MODE_CTRL5, v_total+1);
+		DSI_W32(ctrl, DSI_VIDEO_MODE_CTRL4, 1);
+
+		DSI_W32(ctrl, DSI_COMMAND_MODE_DMA_CTRL_1, BIT(1));
+	}
+}
+#ifdef MI_DISPLAY_MODIFY
+/**
+ * get_video_timing() - get the timing for video frame
+ * @ctrl:          Pointer to controller host hardware.
+ * @mode:          Video mode information.
+ *
+ * Get the video timing parameters for the DSI video mode operation.
+ */
+u32 dsi_ctrl_hw_cmn_get_video_timing(struct dsi_ctrl_hw *ctrl,
+				     const char *type)
+{
+	u32 dsi_val = 0;
+
+	if (strncmp(type, "HPW", 3) == 0) {
+		u32 tmp_hpw;
+
+		tmp_hpw = DSI_R32(ctrl, DSI_VIDEO_MODE_HSYNC);
+		dsi_val  = (tmp_hpw >> 16) & 0xFFFF;
+		return dsi_val;
+	} else if (strncmp(type, "HFP", 3) == 0) {
+		u32 tmp_hfp, h_total, active_h_end;
+
+		tmp_hfp = DSI_R32(ctrl, DSI_VIDEO_MODE_TOTAL);
+		h_total = tmp_hfp & 0xFFFF;
+
+		tmp_hfp = DSI_R32(ctrl, DSI_VIDEO_MODE_ACTIVE_H);
+		active_h_end = (tmp_hfp >> 16) & 0xFFFF;
+
+		tmp_hfp = h_total - active_h_end + 1;
+
+		return tmp_hfp;
+	} else if (strncmp(type, "HBP", 3) == 0) {
+		u32 tmp_hbp;
+		u32 hs_end, active_h_start;
+
+		tmp_hbp = DSI_R32(ctrl, DSI_VIDEO_MODE_HSYNC);
+		hs_end  = (tmp_hbp >> 16) & 0xFFFF;
+		tmp_hbp = DSI_R32(ctrl, DSI_VIDEO_MODE_ACTIVE_H);
+		active_h_start = tmp_hbp & 0xFFFF;
+		tmp_hbp = active_h_start - hs_end;
+
+		return tmp_hbp;
+
+	} else if (strncmp(type, "VPW", 3) == 0) {
+		u32 tmp_vpw;
+
+		tmp_vpw = DSI_R32(ctrl, DSI_VIDEO_MODE_VSYNC_VPOS);
+		dsi_val  = (tmp_vpw >> 16) & 0xFFFF;
+
+		return dsi_val;
+	} else if (strncmp(type, "VFP", 3) == 0) {
+		u32 tmp_vfp, v_total, active_v_end;
+
+		tmp_vfp = DSI_R32(ctrl, DSI_VIDEO_MODE_TOTAL);
+		v_total = (tmp_vfp >> 16) & 0xFFFF;
+
+		tmp_vfp = DSI_R32(ctrl, + DSI_VIDEO_MODE_ACTIVE_V);
+		active_v_end = (tmp_vfp >> 16) & 0xFFFF;
+
+		tmp_vfp = v_total - active_v_end + 1;
+
+		return tmp_vfp;
+	} else if (strncmp(type, "VBP", 3) == 0) {
+		u32 tmp_vbp, vpos_end, active_v_start;
+
+		tmp_vbp = DSI_R32(ctrl, DSI_VIDEO_MODE_VSYNC_VPOS);
+		vpos_end  = (tmp_vbp >> 16) & 0xFFFF;
+
+		tmp_vbp = DSI_R32(ctrl, DSI_VIDEO_MODE_ACTIVE_V);
+		active_v_start = tmp_vbp & 0xFFFF;
+
+		tmp_vbp = active_v_start - vpos_end;
+		return tmp_vbp;
+	}
+
+	dsi_val = 0;
+	return dsi_val;
+}
+#endif
 /**
  * setup_cmd_stream() - set up parameters for command pixel streams
  * @ctrl:              Pointer to controller host hardware.
@@ -1944,7 +2030,8 @@ bool dsi_ctrl_hw_cmn_vid_engine_busy(struct dsi_ctrl_hw *ctrl)
 }
 
 void dsi_ctrl_hw_cmn_init_cmddma_trig_ctrl(struct dsi_ctrl_hw *ctrl,
-					   struct dsi_host_common_cfg *cfg)
+					   struct dsi_host_common_cfg *cfg,
+					   bool do_peripheral_flush)
 {
 	u32 reg;
 	const u8 trigger_map[DSI_TRIGGER_MAX] = {
@@ -1953,7 +2040,12 @@ void dsi_ctrl_hw_cmn_init_cmddma_trig_ctrl(struct dsi_ctrl_hw *ctrl,
 	/* Initialize the default trigger used for Command Mode DMA path. */
 	reg = DSI_R32(ctrl, DSI_TRIG_CTRL);
 	reg &= ~BIT(16); /* Reset DMA_TRG_MUX */
-	reg &= ~(0xF); /* Reset DMA_TRIGGER_SEL */
-	reg |= (trigger_map[cfg->dma_cmd_trigger] & 0xF);
+	reg &= ~(0xF | (0b111 << 17)); /* Reset DMA_TRIGGER_SEL */
+
+	if (do_peripheral_flush)
+		reg |= BIT(17); /* COMMAND_MODE_DMA_TRIGGER_SEL to periph flush from MDP */
+	else
+		reg |= (trigger_map[cfg->dma_cmd_trigger] & 0xF);
+
 	DSI_W32(ctrl, DSI_TRIG_CTRL, reg);
 }

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -9,6 +9,7 @@
 
 #include <linux/io.h>
 #include <linux/slab.h>
+#include <drm/drm_drv.h>
 #include "sde_hw_mdss.h"
 #include "sde_hw_catalog.h"
 
@@ -284,6 +285,32 @@ uint32_t sde_copy_formats(
 		uint32_t dst_list_pos,
 		const struct sde_format_extended *src_list,
 		uint32_t src_list_size);
+
+/**
+ * struct sde_qtimer - qtimer
+ * @qtimer_cb: qtimer function pointer
+ * @qtimer_mmio: qtimer memory-mapped I/O
+ * @time_in_ns: time inverval for qtimer function callback
+ */
+struct sde_qtimer {
+	irqreturn_t (*qtimer_cb)(int irq, void *arg);
+	void __iomem *qtimer_mmio;
+	unsigned long time_in_ns;
+};
+
+/**
+ * sde_qtimer_start - (re)start a qtimer
+ * sde_qtimer -  basic qtimer structure, which stores
+ *               qtimer handle, expiry time and qtimer mmio
+ */
+void sde_qtimer_start(struct sde_qtimer *sde_qtimer);
+
+/**
+ * sde_qtimer_stop - stop a qtimer
+ * sde_qtimer -  basic qtimer structure, which stores
+ *               qtimer handle, expiry time and qtimer mmio
+ */
+void sde_qtimer_stop(struct sde_qtimer *sde_qtimer);
 
 static inline bool is_qseed3_rev_qseed3lite(struct sde_mdss_cfg *sde_cfg)
 {

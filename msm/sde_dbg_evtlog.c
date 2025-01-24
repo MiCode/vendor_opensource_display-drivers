@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -111,7 +111,7 @@ void sde_reglog_log(u8 blk_id, u32 val, u32 addr)
 	log->addr = addr;
 	log->time = local_clock();
 	log->pid = current->pid;
-	reglog->last++;
+	atomic64_inc(&reglog->last);
 }
 
 /* always dump the last entries which are not dumped yet */
@@ -250,6 +250,7 @@ struct sde_dbg_reglog *sde_reglog_init(void)
 		return ERR_PTR(-ENOMEM);
 
 	atomic64_set(&reglog->curr, 0);
+	atomic64_set(&reglog->last, 0);
 #if IS_ENABLED(CONFIG_DEBUG_FS)
 	reglog->enable = true;
 #else
@@ -275,7 +276,7 @@ int sde_evtlog_get_filter(struct sde_dbg_evtlog *evtlog, int index,
 			continue;
 
 		/* don't care about return value */
-		(void)strlcpy(buf, filter_node->filter, bufsz);
+		(void)strscpy(buf, filter_node->filter, bufsz);
 		rc = 0;
 		break;
 	}
@@ -330,7 +331,7 @@ void sde_evtlog_set_filter(struct sde_dbg_evtlog *evtlog, char *filter)
 		}
 
 		/* don't care if copy truncated */
-		(void)strlcpy(filter_node->filter, flt,
+		(void)strscpy(filter_node->filter, flt,
 				SDE_EVTLOG_FILTER_STRSIZE);
 
 		spin_lock_irqsave(&evtlog->spin_lock, flags);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -110,6 +110,8 @@ struct msm_kms_funcs {
 				 bool cmd_mode);
 	void (*display_early_wakeup)(struct drm_device *dev,
 				const int32_t connector_id);
+	void (*display_early_ept_hint)(struct drm_device *dev,
+				const int32_t connector_id, u64 frame_interval, u64 ept_ns);
 	/* pm suspend/resume hooks */
 	int (*pm_suspend)(struct device *dev);
 	int (*pm_resume)(struct device *dev);
@@ -213,6 +215,7 @@ static inline int msm_mdss_disable(struct msm_mdss *mdss)
 
 struct msm_kms *sde_kms_init(struct drm_device *dev);
 
+void msm_sde_qtimer_install(struct device *dev);
 
 /**
  * Mode Set Utility Functions

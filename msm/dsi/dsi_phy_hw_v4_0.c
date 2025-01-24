@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/math64.h>
@@ -965,4 +965,44 @@ void dsi_phy_hw_v4_0_set_continuous_clk(struct dsi_phy_hw *phy, bool enable)
 	}
 
 	wmb(); /* make sure request is set */
+}
+
+#ifdef MI_DISPLAY_MODIFY
+void dsi_phy_hw_v4_0_get_phy_timing(struct dsi_phy_hw *phy,
+          u32 *phy_timming, u32 size)
+{
+	if (!phy_timming || !phy || !size)
+		return;
+	if (size != DSI_PHY_TIMING_V4_SIZE) {
+		DSI_ERR("Unexpected timing array size %d\n", size);
+		return;
+	}
+	phy_timming[0] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_0);
+	phy_timming[1] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_1);
+	phy_timming[2] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_2);
+	phy_timming[3] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_3);
+	phy_timming[4] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_4);
+	phy_timming[5] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_5);
+	phy_timming[6] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_6);
+	phy_timming[7] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_7);
+	phy_timming[8] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_8);
+	phy_timming[9] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_9);
+	phy_timming[10] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_10);
+	phy_timming[11] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_11);
+	phy_timming[12] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_12);
+	phy_timming[13] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_13);
+}
+#endif
+
+void dsi_phy_hw_v4_0_phy_idle_off(struct dsi_phy_hw *phy,
+					struct dsi_phy_cfg *cfg)
+{
+	if (dsi_phy_hw_v4_0_is_pll_on(phy))
+		DSI_PHY_WARN(phy, "Turning OFF PHY while PLL is on\n");
+
+	/* enable clamping of PADS */
+	if (phy->version >= DSI_PHY_VERSION_4_2) {
+		DSI_W32(phy, DSIPHY_CMN_CTRL_4, 0x1);
+		DSI_W32(phy, DSIPHY_CMN_CTRL_3, 0x0);
+	}
 }

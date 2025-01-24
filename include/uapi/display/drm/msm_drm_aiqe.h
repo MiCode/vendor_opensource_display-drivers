@@ -5,7 +5,7 @@
 #ifndef _MSM_DRM_AIQE_H_
 #define _MSM_DRM_AIQE_H_
 
-#include <drm/drm.h>
+#include <linux/types.h>
 
 #define AIQE_MDNIE_SUPPORTED
 #define AIQE_MDNIE_PARAM_LEN 118
@@ -106,6 +106,22 @@ struct drm_msm_ai_scaler {
 	__u32 dst_w;
 	__u32 dst_h;
 	__u32 param[AIQE_AI_SCALER_PARAM_LEN];
+};
+
+#define AIQE_ABC_SUPPORTED
+#define AIQE_ABC_PARAM_LEN 44
+#define AIQE_ABC_SRC_SEL_DMA1 1
+#define AIQE_ABC_SRC_SEL_DMA3 3
+/**
+ * struct drm_msm_abc - abc feature structure
+ * @flags - flags for abc feature
+ * @src_sel - pipe selected for abc feature
+ * @param - Parameters for abc feature
+ */
+struct drm_msm_abc {
+	__u64 flags;
+	__u32 src_sel;
+	__u32 param[AIQE_ABC_PARAM_LEN];
 };
 
 #endif /* _MSM_DRM_AIQE_H_ */

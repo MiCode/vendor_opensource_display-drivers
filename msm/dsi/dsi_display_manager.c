@@ -662,7 +662,7 @@ int dsi_display_mgr_panel_post_unprepare(struct dsi_display *display)
 		return -EINVAL;
 	}
 
-	if (!display->panel->ctl_op_sync)
+	if (!display->panel->ctl_op_sync && !display->twm_enabled)
 		return dsi_panel_post_unprepare(display->panel);
 
 	mutex_lock(&disp_mgr.disp_mgr_mutex);
@@ -676,7 +676,8 @@ int dsi_display_mgr_panel_post_unprepare(struct dsi_display *display)
 
 	display->panel->powered = false;
 
-	if (!m_display->panel->powered && !s_display->panel->powered)
+	if (!m_display->panel->powered && !s_display->panel->powered &&
+		!display->twm_enabled)
 		rc = dsi_panel_post_unprepare(m_display->panel);
 
 error_display_get:

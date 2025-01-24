@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -62,6 +62,8 @@
 
 #define MAX_TMDS_CLOCK_HDMI_1_4 340000
 
+#define MAX_TIMES_RECONNECT 4
+
 enum dp_display_states {
 	DP_STATE_DISCONNECTED           = 0,
 	DP_STATE_CONFIGURED             = BIT(0),
@@ -76,6 +78,9 @@ enum dp_display_states {
 	DP_STATE_HDCP_ABORTED           = BIT(9),
 	DP_STATE_SRC_PWRDN              = BIT(10),
 	DP_STATE_TUI_ACTIVE             = BIT(11),
+#ifdef MI_DISPLAY_MODIFY
+	DP_STATE_PANEL_RECONNECT        = BIT(12),
+#endif
 };
 
 struct dp_display_type_info {
@@ -136,6 +141,11 @@ static char *dp_display_state_name(enum dp_display_states state)
 	if (state & DP_STATE_TUI_ACTIVE)
 		len += scnprintf(buf + len, sizeof(buf) - len, "|%s|",
 			"TUI_ACTIVE");
+#ifdef MI_DISPLAY_MODIFY
+	if (state & DP_STATE_PANEL_RECONNECT)
+		len += scnprintf(buf + len, sizeof(buf) - len, "|%s|",
+				"PANEL_RECONNECT");
+#endif
 
 	if (!strlen(buf))
 		return "DISCONNECTED";
@@ -172,8 +182,8 @@ struct dp_display_private {
 	char *name;
 	int irq;
 
-	enum drm_connector_status cached_connector_status;
 	enum dp_display_states state;
+	enum dp_aux_switch_type switch_type;
 
 	struct platform_device *pdev;
 	struct device_node *aux_switch_node;
@@ -206,6 +216,7 @@ struct dp_display_private {
 	struct delayed_work hdcp_cb_work;
 	struct work_struct connect_work;
 	struct work_struct attention_work;
+	struct work_struct disconnect_work;
 	struct mutex session_lock;
 	struct mutex accounting_lock;
 	bool hdcp_delayed_off;
@@ -222,6 +233,10 @@ struct dp_display_private {
 	bool pm_qos_requested;
 
 	struct notifier_block usb_nb;
+
+	#ifdef MI_DISPLAY_MODIFY
+	int reconnect_times;
+	#endif
 
 	u32 cell_idx;
 	u32 intf_idx[DP_STREAM_MAX];
@@ -779,6 +794,7 @@ static int dp_display_pre_hw_release(void *data)
 	dp_display_state_add(DP_STATE_TUI_ACTIVE);
 	cancel_work_sync(&dp->connect_work);
 	cancel_work_sync(&dp->attention_work);
+	cancel_work_sync(&dp->disconnect_work);
 	flush_workqueue(dp->wq);
 
 	dp_display_pause_audio(dp, true);
@@ -927,14 +943,6 @@ static bool dp_display_send_hpd_event(struct dp_display_private *dp)
 	connector->status = display->is_sst_connected ? connector_status_connected :
 			connector_status_disconnected;
 
-	if (dp->cached_connector_status == connector->status) {
-		DP_DEBUG("connector status (%d) unchanged, skipping uevent\n",
-				dp->cached_connector_status);
-		return false;
-	}
-
-	dp->cached_connector_status = connector->status;
-
 	dev = connector->dev;
 
 	if (dp->debug->skip_uevent) {
@@ -980,6 +988,15 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp, bool 
 	 * message. This check here will avoid any unintended duplicate
 	 * notifications.
 	 */
+#ifdef MI_DISPLAY_MODIFY
+	if (dp_display_state_is(DP_STATE_CONNECT_NOTIFIED) && hpd && !dp->debug->skip_uevent) {
+		DP_DEBUG("connection notified already, skip notification\n");
+		goto skip_wait;
+	} else if (dp_display_state_is(DP_STATE_DISCONNECT_NOTIFIED) && !hpd && !dp->debug->skip_uevent) {
+		DP_DEBUG("disonnect notified already, skip notification\n");
+		goto skip_wait;
+	}
+#else
 	if (dp_display_state_is(DP_STATE_CONNECT_NOTIFIED) && hpd) {
 		DP_DEBUG("connection notified already, skip notification\n");
 		goto skip_wait;
@@ -987,6 +1004,7 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp, bool 
 		DP_DEBUG("disonnect notified already, skip notification\n");
 		goto skip_wait;
 	}
+#endif
 
 	dp->aux->state |= DP_STATE_NOTIFICATION_SENT;
 
@@ -1030,8 +1048,8 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp, bool 
 			(!!dp_display_state_is(DP_STATE_ENABLED) == hpd))
 		goto skip_wait;
 
-	// wait 2 seconds
-	if (wait_for_completion_timeout(&dp->notification_comp, HZ * 2))
+	// wait 4 seconds
+	if (wait_for_completion_timeout(&dp->notification_comp, HZ * 4))
 		goto skip_wait;
 
 	//resend notification
@@ -1040,8 +1058,8 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp, bool 
 	else
 		dp_display_send_hpd_event(dp);
 
-	// wait another 3 seconds
-	if (!wait_for_completion_timeout(&dp->notification_comp, HZ * 3)) {
+	// wait another 2 seconds
+	if (!wait_for_completion_timeout(&dp->notification_comp, HZ * 2)) {
 		DP_WARN("%s timeout\n", hpd ? "connect" : "disconnect");
 		ret = -EINVAL;
 	}
@@ -1221,6 +1239,7 @@ static int dp_display_host_ready(struct dp_display_private *dp)
 	dp->ctrl->abort(dp->ctrl, false);
 
 	dp->aux->init(dp->aux, dp->parser->aux_cfg);
+	rc = dp_display_panel_ready(dp);
 
 	dp_display_state_add(DP_STATE_READY);
 	/* log this as it results from user action of cable connection */
@@ -1259,6 +1278,11 @@ static void dp_display_host_deinit(struct dp_display_private *dp)
 		return;
 	}
 
+	if (dp_display_state_is(DP_STATE_READY)) {
+		DP_DEBUG("dp deinit before unready\n");
+		dp_display_host_unready(dp);
+	}
+
 	dp_display_abort_hdcp(dp, true);
 	dp->ctrl->deinit(dp->ctrl);
 	dp->hpd->host_deinit(dp->hpd, &dp->catalog->hpd);
@@ -1272,11 +1296,58 @@ static void dp_display_host_deinit(struct dp_display_private *dp)
 	DP_INFO("[OK]\n");
 }
 
+static bool dp_display_hpd_irq_pending(struct dp_display_private *dp)
+{
+
+	unsigned long wait_timeout_ms = 0;
+	unsigned long t_out = 0;
+	unsigned long wait_time = 0;
+
+	do {
+		/*
+		 * If an IRQ HPD is pending, then do not send a connect notification.
+		 * Once this work returns, the IRQ HPD would be processed and any
+		 * required actions (such as link maintenance) would be done which
+		 * will subsequently send the HPD notification. To keep things simple,
+		 * do this only for SST use-cases. MST use cases require additional
+		 * care in order to handle the side-band communications as well.
+		 *
+		 * One of the main motivations for this is DP LL 1.4 CTS use case
+		 * where it is possible that we could get a test request right after
+		 * a connection, and the strict timing requriements of the test can
+		 * only be met if we do not wait for the e2e connection to be set up.
+		 */
+		if (!dp->mst.mst_active && (work_busy(&dp->attention_work) == WORK_BUSY_PENDING)) {
+			SDE_EVT32_EXTERNAL(dp->state, 99, jiffies_to_msecs(t_out));
+			DP_DEBUG("Attention pending, skip HPD notification\n");
+			return true;
+		}
+
+		/*
+		 * If no IRQ HPD, delay the HPD connect notification for
+		 * MAX_CONNECT_NOTIFICATION_DELAY_MS to see if sink generates any IRQ HPDs
+		 * after the HPD high. Wait for
+		 * MAX_CONNECT_NOTIFICATION_DELAY_MS to make sure any IRQ HPD from test
+		 * requests aren't missed.
+		 */
+		reinit_completion(&dp->attention_comp);
+		wait_timeout_ms = min_t(unsigned long, dp->debug->connect_notification_delay_ms,
+				(unsigned long) MAX_CONNECT_NOTIFICATION_DELAY_MS - wait_time);
+		t_out = wait_for_completion_timeout(&dp->attention_comp,
+				msecs_to_jiffies(wait_timeout_ms));
+		wait_time += (t_out == 0) ?  wait_timeout_ms : t_out;
+
+	} while ((wait_timeout_ms < wait_time) && (wait_time < MAX_CONNECT_NOTIFICATION_DELAY_MS));
+
+	DP_DEBUG("wait_timeout=%lu ms, time_waited=%lu ms\n", wait_timeout_ms, wait_time);
+
+	return false;
+
+}
+
 static int dp_display_process_hpd_high(struct dp_display_private *dp)
 {
 	int rc = -EINVAL;
-	unsigned long wait_timeout_ms = 0;
-	unsigned long t;
 
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_ENTRY, dp->state);
 	mutex_lock(&dp->session_lock);
@@ -1286,6 +1357,8 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 		mutex_unlock(&dp->session_lock);
 		return -EISCONN;
 	}
+
+	DP_INFO("process dp hpd level high\n");
 
 	dp_display_state_add(DP_STATE_CONNECTED);
 
@@ -1341,8 +1414,6 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 		goto err_state;
 	}
 
-	rc = dp_display_panel_ready(dp);
-
 	dp->link->psm_config(dp->link, &dp->panel->link_info, false);
 	dp->debug->psm_enabled = false;
 
@@ -1354,9 +1425,44 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 	/*
 	 * ETIMEDOUT --> cable may have been removed
 	 * ENOTCONN --> no downstream device connected
+	 * ENOLINK --> panel edid read error
 	 */
 	if (rc == -ETIMEDOUT || rc == -ENOTCONN)
 		goto err_unready;
+
+#ifdef MI_DISPLAY_MODIFY
+	/*
+	 * retry. reconnect dp,
+	 * init host -> uninit host -> init host
+	 * reget edid data.
+	 */
+	if(dp->debug->read_edid_error || rc == -ENOLINK) {
+		dp->debug->read_edid_error = false;
+
+		if(dp_display_state_is(DP_STATE_PANEL_RECONNECT)) {
+			dp->reconnect_times--;
+			if(dp->reconnect_times <= 0)
+				dp_display_state_remove(DP_STATE_PANEL_RECONNECT);
+
+			DP_INFO("dp reconnected, read edid error. reconnect:%d\n",dp->reconnect_times);
+			goto err_unready;
+		}
+
+	}
+
+	DP_INFO("Process panel status Ok!!!\n");
+#endif
+
+	/*
+	 * In the PHY layer of a DP connection (cable or/and the sink), often
+	 * "Link Training(LT) tunable PHY repeaters (LTTPR)" are employed. These LTTPRs can operate
+	 * in 2 modes: Transparent & Non-Transparent. Even though the DP 1.4spec suggests
+	 * transparent mode as default for LTTPRs, it is observed that some cables with LTTPRs
+	 * (e.g. apple cable) misbehave if the operating mode isn't set explicitly. Hence set the
+	 * transparent mode if at least 1 LTTPR is present in the path.
+	 */
+	if (drm_dp_lttpr_count(dp->panel->lttpr_common_caps))
+		dp->panel->set_lttpr_mode(dp->panel, true);
 
 	dp->link->process_request(dp->link);
 	dp->panel->handle_sink_request(dp->panel);
@@ -1374,38 +1480,8 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 
 	mutex_unlock(&dp->session_lock);
 
-	/*
-	 * Delay the HPD connect notification to see if sink generates any
-	 * IRQ HPDs immediately after the HPD high.
-	 */
-	reinit_completion(&dp->attention_comp);
-	wait_timeout_ms = min_t(unsigned long,
-			dp->debug->connect_notification_delay_ms,
-			(unsigned long) MAX_CONNECT_NOTIFICATION_DELAY_MS);
-	t = wait_for_completion_timeout(&dp->attention_comp,
-		msecs_to_jiffies(wait_timeout_ms));
-	DP_DEBUG("wait_timeout=%lu ms, time_waited=%u ms\n", wait_timeout_ms,
-		jiffies_to_msecs(t));
-
-	/*
-	 * If an IRQ HPD is pending, then do not send a connect notification.
-	 * Once this work returns, the IRQ HPD would be processed and any
-	 * required actions (such as link maintenance) would be done which
-	 * will subsequently send the HPD notification. To keep things simple,
-	 * do this only for SST use-cases. MST use cases require additional
-	 * care in order to handle the side-band communications as well.
-	 *
-	 * One of the main motivations for this is DP LL 1.4 CTS use case
-	 * where it is possible that we could get a test request right after
-	 * a connection, and the strict timing requriements of the test can
-	 * only be met if we do not wait for the e2e connection to be set up.
-	 */
-	if (!dp->mst.mst_active &&
-		(work_busy(&dp->attention_work) == WORK_BUSY_PENDING)) {
-		SDE_EVT32_EXTERNAL(dp->state, 99, jiffies_to_msecs(t));
-		DP_DEBUG("Attention pending, skip HPD notification\n");
+	if (dp_display_hpd_irq_pending(dp))
 		goto end;
-	}
 
 	if (!rc && !dp_display_state_is(DP_STATE_ABORTED))
 		dp_display_send_hpd_notification(dp, false);
@@ -1415,14 +1491,17 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 err_mst:
 	dp_display_update_mst_state(dp, false);
 err_unready:
+#ifdef MI_DISPLAY_MODIFY
+	dp_display_host_deinit(dp);
+#else
 	dp_display_host_unready(dp);
+#endif
 err_state:
 	dp_display_state_remove(DP_STATE_CONNECTED);
 err_unlock:
 	mutex_unlock(&dp->session_lock);
 end:
-	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_EXIT, dp->state,
-		wait_timeout_ms, rc);
+	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_EXIT, dp->state, rc);
 	return rc;
 }
 
@@ -1580,6 +1659,9 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 
 	mutex_lock(&dp->session_lock);
 
+#ifdef MI_DISPLAY_MODIFY
+	dp->reconnect_times = MAX_TIMES_RECONNECT;
+#endif
 	if (dp_display_state_is(DP_STATE_TUI_ACTIVE)) {
 		dp_display_state_log("[TUI is active]");
 		mutex_unlock(&dp->session_lock);
@@ -1588,6 +1670,9 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 
 	dp_display_state_remove(DP_STATE_ABORTED);
 	dp_display_state_add(DP_STATE_CONFIGURED);
+#ifdef MI_DISPLAY_MODIFY
+	dp_display_state_add(DP_STATE_PANEL_RECONNECT);
+#endif
 
 	rc = dp_display_host_init(dp);
 	if (rc) {
@@ -1752,6 +1837,10 @@ static int dp_display_handle_disconnect(struct dp_display_private *dp, bool skip
 
 	dp->tot_lm_blks_in_use = 0;
 
+	#ifdef MI_DISPLAY_MODIFY
+	dp->reconnect_times = MAX_TIMES_RECONNECT;
+	#endif
+
 	mutex_unlock(&dp->session_lock);
 
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_EXIT, dp->state);
@@ -1772,6 +1861,7 @@ static void dp_display_disconnect_sync(struct dp_display_private *dp)
 	/* wait for idle state */
 	cancel_work_sync(&dp->connect_work);
 	cancel_work_sync(&dp->attention_work);
+	cancel_work_sync(&dp->disconnect_work);
 	flush_workqueue(dp->wq);
 
 	/*
@@ -1977,10 +2067,12 @@ cp_irq:
 		 * It is possible that the connect_work skipped sending
 		 * the HPD notification if the attention message was
 		 * already pending. Send the notification here to
-		 * account for that. This is not needed if this
-		 * attention work was handling a test request
+		 * account for that. It is possible that the test sequence
+		 * can trigger an unplug after DP_LINK_STATUS_UPDATED, before
+		 * starting the next test case. Make sure to check the HPD status.
 		 */
-		dp_display_send_hpd_notification(dp, false);
+		if (!dp_display_state_is(DP_STATE_ABORTED))
+			dp_display_send_hpd_notification(dp, false);
 	}
 
 mst_attention:
@@ -2072,6 +2164,19 @@ static void dp_display_connect_work(struct work_struct *work)
 		dp->link->send_test_response(dp->link);
 }
 
+static void dp_display_disconnect_work(struct work_struct *work)
+{
+	struct dp_display_private *dp = container_of(work,
+			struct dp_display_private, disconnect_work);
+
+	dp_display_handle_disconnect(dp, false);
+
+	if (dp->debug->sim_mode && dp_display_state_is(DP_STATE_ABORTED))
+		dp_display_host_deinit(dp);
+
+	dp->debug->abort(dp->debug);
+}
+
 static int dp_display_usb_notifier(struct notifier_block *nb,
 	unsigned long action, void *data)
 {
@@ -2084,8 +2189,10 @@ static int dp_display_usb_notifier(struct notifier_block *nb,
 		dp_display_state_add(DP_STATE_ABORTED);
 		dp->ctrl->abort(dp->ctrl, true);
 		dp->aux->abort(dp->aux, true);
-		dp_display_handle_disconnect(dp, false);
-		dp->debug->abort(dp->debug);
+
+		dp->power->park_clocks(dp->power);
+
+		queue_work(dp->wq, &dp->disconnect_work);
 	}
 
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_EXIT, dp->state, NOTIFY_DONE);
@@ -2208,8 +2315,16 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 		dp->no_aux_switch = true;
 	}
 
+	if (!strcmp(dp->aux_switch_node->name, "fsa4480"))
+		dp->switch_type = DP_AUX_SWITCH_FSA4480;
+	else if (!strcmp(dp->aux_switch_node->name, "wcd939x_i2c"))
+		dp->switch_type = DP_AUX_SWITCH_WCD939x;
+	else
+		dp->switch_type = DP_AUX_SWITCH_BYPASS;
+
 	dp->aux = dp_aux_get(dev, &dp->catalog->aux, dp->parser,
-			dp->aux_switch_node, dp->aux_bridge, dp->dp_display.dp_aux_ipc_log);
+			dp->aux_switch_node, dp->aux_bridge, dp->dp_display.dp_aux_ipc_log,
+			dp->switch_type);
 	if (IS_ERR(dp->aux)) {
 		rc = PTR_ERR(dp->aux);
 		DP_ERR("failed to initialize aux, rc = %d\n", rc);
@@ -2342,7 +2457,6 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 		goto error_debug;
 	}
 
-	dp->cached_connector_status = connector_status_disconnected;
 	dp->tot_dsc_blks_in_use = 0;
 	dp->tot_lm_blks_in_use = 0;
 
@@ -2539,13 +2653,6 @@ static int dp_display_prepare(struct dp_display *dp_display, void *panel)
 	rc = dp_display_host_ready(dp);
 	if (rc) {
 		dp_display_state_show("[ready failed]");
-		goto end;
-	}
-
-	rc = dp_display_panel_ready(dp);
-	if (rc) {
-		dp_display_host_unready(dp);
-		dp_display_host_deinit(dp);
 		goto end;
 	}
 
@@ -3353,7 +3460,10 @@ static void dp_display_convert_to_dp_mode(struct dp_display *dp_display,
 				dp_mode->capabilities);
 	}
 
-	dp_panel->convert_to_dp_mode(dp_panel, drm_mode, dp_mode);
+	rc = dp_panel->convert_to_dp_mode(dp_panel, drm_mode, dp_mode);
+	if (rc == -EAGAIN) {
+		dp_panel->convert_to_dp_mode(dp_panel, drm_mode, dp_mode);
+	}
 }
 
 static int dp_display_config_hdr(struct dp_display *dp_display, void *panel,
@@ -3374,7 +3484,10 @@ static int dp_display_config_hdr(struct dp_display *dp_display, void *panel,
 	dp = container_of(dp_display, struct dp_display_private, dp_display);
 	sde_conn =  to_sde_connector(dp_panel->connector);
 
-	core_clk_rate = dp->power->clk_get_rate(dp->power, "core_clk");
+	if (sde_cesta_is_enabled(DPUID(dp_display->drm_dev)))
+		core_clk_rate = sde_cesta_get_core_clk_rate(DPUID(dp_display->drm_dev));
+	else
+		core_clk_rate = dp->power->clk_get_rate(dp->power, "core_clk");
 	if (!core_clk_rate) {
 		DP_ERR("invalid rate for core_clk\n");
 		return -EINVAL;
@@ -3436,6 +3549,7 @@ static int dp_display_create_workqueue(struct dp_display_private *dp)
 	INIT_DELAYED_WORK(&dp->hdcp_cb_work, dp_display_hdcp_cb_work);
 	INIT_WORK(&dp->connect_work, dp_display_connect_work);
 	INIT_WORK(&dp->attention_work, dp_display_attention_work);
+	INIT_WORK(&dp->disconnect_work, dp_display_disconnect_work);
 
 	return 0;
 }
@@ -3903,13 +4017,6 @@ static int dp_display_edp_detect(struct dp_display *dp_display)
 	rc = dp_display_host_ready(dp);
 	if (rc) {
 		dp_display_state_show("[ready failed]");
-		dp_display_host_deinit(dp);
-		goto end;
-	}
-
-	rc = dp_display_panel_ready(dp);
-	if (rc) {
-		dp_display_host_unready(dp);
 		dp_display_host_deinit(dp);
 		goto end;
 	}

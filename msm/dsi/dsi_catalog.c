@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/errno.h>
@@ -19,6 +19,9 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 	ctrl->ops.video_engine_en        = dsi_ctrl_hw_cmn_video_engine_en;
 	ctrl->ops.video_engine_setup     = dsi_ctrl_hw_cmn_video_engine_setup;
 	ctrl->ops.set_video_timing       = dsi_ctrl_hw_cmn_set_video_timing;
+#ifdef MI_DISPLAY_MODIFY
+	ctrl->ops.get_video_timing       = dsi_ctrl_hw_cmn_get_video_timing;
+#endif
 	ctrl->ops.set_timing_db          = dsi_ctrl_hw_cmn_set_timing_db;
 	ctrl->ops.cmd_engine_setup       = dsi_ctrl_hw_cmn_cmd_engine_setup;
 	ctrl->ops.setup_cmd_stream       = dsi_ctrl_hw_cmn_setup_cmd_stream;
@@ -238,7 +241,10 @@ static void dsi_catalog_phy_4_0_init(struct dsi_phy_hw *phy)
 		dsi_phy_hw_v4_0_cache_phy_timings;
 	phy->ops.set_continuous_clk = dsi_phy_hw_v4_0_set_continuous_clk;
 	phy->ops.commit_phy_timing = dsi_phy_hw_v4_0_commit_phy_timing;
-	phy->ops.phy_idle_off = NULL;
+#ifdef MI_DISPLAY_MODIFY
+	phy->ops.get_phy_timing = dsi_phy_hw_v4_0_get_phy_timing;
+#endif
+	phy->ops.phy_idle_off = dsi_phy_hw_v4_0_phy_idle_off;
 }
 
 /**
@@ -269,6 +275,9 @@ static void dsi_catalog_phy_5_0_init(struct dsi_phy_hw *phy)
 	phy->ops.set_continuous_clk = dsi_phy_hw_v5_0_set_continuous_clk;
 	phy->ops.commit_phy_timing = dsi_phy_hw_v5_0_commit_phy_timing;
 	phy->ops.phy_idle_off = dsi_phy_hw_v5_0_phy_idle_off;
+#ifdef MI_DISPLAY_MODIFY
+	phy->ops.get_phy_timing = dsi_phy_hw_v5_0_get_phy_timing;
+#endif
 }
 
 /**
@@ -299,6 +308,9 @@ static void dsi_catalog_phy_7_2_init(struct dsi_phy_hw *phy)
 	phy->ops.set_continuous_clk = dsi_phy_hw_v7_2_set_continuous_clk;
 	phy->ops.commit_phy_timing = dsi_phy_hw_v7_2_commit_phy_timing;
 	phy->ops.phy_idle_off = dsi_phy_hw_v7_2_phy_idle_off;
+#ifdef MI_DISPLAY_MODIFY
+	phy->ops.get_phy_timing = dsi_phy_hw_v7_2_get_phy_timing;
+#endif
 }
 
 /**

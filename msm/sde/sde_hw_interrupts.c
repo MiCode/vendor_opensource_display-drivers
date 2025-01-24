@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -389,7 +389,7 @@ static struct sde_irq_type sde_irq_intf_map[] = {
 		SDE_INTR_DSICMD_2_OUTOF_STATIC, -1},
 
 	{ SDE_IRQ_TYPE_PROG_LINE, -1, SDE_INTR_PROG_LINE, -1},
-	{ SDE_IRQ_TYPE_WD_TIMER, -1, SDE_INTR_WD_TIMER_0_DONE, -1},
+	{ SDE_IRQ_TYPE_WD_TIMER_1, -1, SDE_INTR_INTF_WD_TIMER_0_DONE, -1},
 };
 
 static struct sde_irq_type sde_irq_ad4_map[] = {

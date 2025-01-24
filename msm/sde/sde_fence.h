@@ -10,7 +10,9 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/mutex.h>
+#if IS_ENABLED(CONFIG_QTI_HW_FENCE)
 #include <synx_api.h>
+#endif /* CONFIG_QTI_HW_FENCE */
 
 #ifndef CHAR_BIT
 #define CHAR_BIT 8 /* define this if limits.h not available */
@@ -126,9 +128,11 @@ enum sde_fence_event {
  */
 struct sde_hw_fence_data {
 	int client_id;
+#if IS_ENABLED(CONFIG_QTI_HW_FENCE)
 	enum synx_client_id hw_fence_client_id;
 	struct synx_session *hw_fence_handle;
 	struct synx_queue_desc mem_descriptor;
+#endif /* CONFIG_QTI_HW_FENCE */
 	u32 *txq_tx_wm_va;
 	u32 *txq_wr_ptr_pa;
 	u32 ipcc_in_client;
@@ -198,71 +202,6 @@ uint32_t sde_sync_get_name_prefix(void *fence);
  */
 struct sde_fence_context *sde_fence_init(const char *name,
 		uint32_t drm_id);
-
-/**
- * sde_fence_hw_fence_init - initialize hw-fence clients
- *
- * @hw_ctl: hw ctl client to init.
- * @sde_kms: used for hw fence error cb register.
- * @use_ipcc: boolean to indicate if hw should use dpu ipcc signals.
- * @mmu: mmu to map memory for queues
- *
- * Returns: Zero on success, otherwise returns an error code.
- */
-int sde_hw_fence_init(struct sde_hw_ctl *hw_ctl, struct sde_kms *sde_kms, bool use_dpu_ipcc,
-	struct msm_mmu *mmu);
-
-/**
- * sde_fence_hw_fence_deinit - deinitialize hw-fence clients
- *
- * @hw_ctl: hw ctl client to init.
- */
-void sde_hw_fence_deinit(struct sde_hw_ctl *hw_ctl);
-
-/**
- * sde_fence_register_hw_fences_wait - registers dpu-client for wait on hw fence or fences
- *
- * @hw_ctl: hw ctl client used to register for wait.
- * @fences: list of dma-fences that have hw-fence support to wait-on
- * @num_fences: number of fences in the above list
- *
- * Returns: Zero on success, otherwise returns an error code.
- */
-int sde_fence_register_hw_fences_wait(struct sde_hw_ctl *hw_ctl, struct dma_fence **fences,
-	u32 num_fences);
-
-/**
- * sde_fence_output_hw_fence_dir_write_init - update addr, mask and size for output fence dir write
- * @hw_ctl: hw ctl client to init dir write regs for
- */
-void sde_fence_output_hw_fence_dir_write_init(struct sde_hw_ctl *hw_ctl);
-
-/**
- * sde_fence_update_hw_fences_txq - updates the hw-fence txq with the list of hw-fences to signal
- *                                  upon triggering the ipcc signal.
- *
- * @ctx: sde fence context
- * @vid_mode: is video-mode update
- * @line_count: prog line count value, must be non-zero
- *
- * Returns: Zero on success, otherwise returns an error code.
- */
-int sde_fence_update_hw_fences_txq(struct sde_fence_context *ctx, bool vid_mode, u32 line_count,
-	u32 debugfs_hw_fence);
-
-/**
- * sde_fence_update_input_hw_fence_signal - updates input-fence ipcc signal in dpu and enables
- *                                  hw-fences for the ctl.
- *
- * @ctl: hw ctl to update the input-fence and enable hw-fences
- * @debugfs_hw_fence: hw-fence timestamp debugfs value
- * @hw_mdp: pointer to hw_mdp to get timestamp registers
- * @disable: bool to indicate if we should disable hw-fencing for this commit
- *
- * Returns: Zero on success, otherwise returns an error code.
- */
-int sde_fence_update_input_hw_fence_signal(struct sde_hw_ctl *ctl, u32 debugfs_hw_fence,
-	struct sde_hw_mdp *hw_mdp, bool disable);
 
 /**
  * sde_fence_error_ctx_update - update fence_error_state and fence_error_status in
@@ -414,5 +353,109 @@ void sde_fence_dump(struct dma_fence *fence)
 	/* do nothing */
 }
 #endif /* IS_ENABLED(CONFIG_SW_SYNC) */
+
+#if IS_ENABLED(CONFIG_SYNC_FILE) && IS_ENABLED(CONFIG_QTI_HW_FENCE)
+/**
+ * sde_fence_hw_fence_init - initialize hw-fence clients
+ *
+ * @hw_ctl: hw ctl client to init.
+ * @sde_kms: used for hw fence error cb register.
+ * @use_ipcc: boolean to indicate if hw should use dpu ipcc signals.
+ * @use_soccp: boolean to indicate if hw should send ipcc signals to soccp.
+ * @mmu: mmu to map memory for queues
+ *
+ * Returns: Zero on success, otherwise returns an error code.
+ */
+int sde_hw_fence_init(struct sde_hw_ctl *hw_ctl, struct sde_kms *sde_kms, bool use_dpu_ipcc,
+	bool use_soccp, struct msm_mmu *mmu);
+
+/**
+ * sde_fence_hw_fence_deinit - deinitialize hw-fence clients
+ *
+ * @hw_ctl: hw ctl client to init.
+ */
+void sde_hw_fence_deinit(struct sde_hw_ctl *hw_ctl);
+
+/**
+ * sde_fence_register_hw_fences_wait - registers dpu-client for wait on hw fence or fences
+ *
+ * @hw_ctl: hw ctl client used to register for wait.
+ * @fences: list of dma-fences that have hw-fence support to wait-on
+ * @num_fences: number of fences in the above list
+ *
+ * Returns: Zero on success, otherwise returns an error code.
+ */
+int sde_fence_register_hw_fences_wait(struct sde_hw_ctl *hw_ctl, struct dma_fence **fences,
+	u32 num_fences);
+
+/**
+ * sde_fence_output_hw_fence_dir_write_init - update addr, mask and size for output fence dir write
+ * @hw_ctl: hw ctl client to init dir write regs for
+ */
+void sde_fence_output_hw_fence_dir_write_init(struct sde_hw_ctl *hw_ctl);
+
+/**
+ * sde_fence_update_hw_fences_txq - updates the hw-fence txq with the list of hw-fences to signal
+ *                                  upon triggering the ipcc signal.
+ *
+ * @ctx: sde fence context
+ * @vid_mode: is video-mode update
+ * @line_count: prog line count value, must be non-zero
+ *
+ * Returns: Zero on success, otherwise returns an error code.
+ */
+int sde_fence_update_hw_fences_txq(struct sde_fence_context *ctx, bool vid_mode, u32 line_count,
+	u32 debugfs_hw_fence);
+
+/**
+ * sde_fence_update_input_hw_fence_signal - updates input-fence ipcc signal in dpu and enables
+ *                                  hw-fences for the ctl.
+ *
+ * @ctl: hw ctl to update the input-fence and enable hw-fences
+ * @debugfs_hw_fence: hw-fence timestamp debugfs value
+ * @hw_mdp: pointer to hw_mdp to get timestamp registers
+ * @disable: bool to indicate if we should disable hw-fencing for this commit
+ * @override: bool to indicate if we should enable sw override only for this commit
+ *
+ * Returns: Zero on success, otherwise returns an error code.
+ */
+int sde_fence_update_input_hw_fence_signal(struct sde_hw_ctl *ctl, u32 debugfs_hw_fence,
+	struct sde_hw_mdp *hw_mdp, bool disable, bool override);
+
+#else
+static inline int sde_hw_fence_init(struct sde_hw_ctl *hw_ctl, struct sde_kms *sde_kms,
+	bool use_dpu_ipcc, bool use_soccp, struct msm_mmu *mmu)
+{
+	return -EINVAL;
+}
+
+static inline void sde_hw_fence_deinit(struct sde_hw_ctl *hw_ctl)
+{
+	/* do nothing */
+}
+
+static inline int sde_fence_register_hw_fences_wait(struct sde_hw_ctl *hw_ctl,
+	struct dma_fence **fences, u32 num_fences)
+{
+	return -EINVAL;
+}
+
+static inline void sde_fence_output_hw_fence_dir_write_init(struct sde_hw_ctl *hw_ctl)
+{
+	/* do nothing */
+}
+
+static inline int sde_fence_update_hw_fences_txq(struct sde_fence_context *ctx, bool vid_mode,
+	u32 line_count, u32 debugfs_hw_fence)
+{
+	return -EINVAL;
+}
+
+static inline int sde_fence_update_input_hw_fence_signal(struct sde_hw_ctl *ctl,
+	u32 debugfs_hw_fence, struct sde_hw_mdp *hw_mdp, bool disable, bool override)
+{
+	return -EINVAL;
+}
+#endif /* CONFIG_SYNC_FILE && CONFIG_QTI_HW_FENCE */
 
 #endif /* _SDE_FENCE_H_ */

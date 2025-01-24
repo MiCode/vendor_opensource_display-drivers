@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -171,6 +171,8 @@ enum sde_plane_sclcheck_state {
  * @csc_usr_ptr: valid user override configuration for csc
  * @csc_ptr: default csc configuration
  * @src_img_rec: source image rect values
+ * @src_rect_extn: extension source rect values
+ * @dst_rect_extn: extension destination rect values
  */
 struct sde_plane_state {
 	struct drm_plane_state base;
@@ -214,6 +216,8 @@ struct sde_plane_state {
 	struct sde_csc_cfg *csc_usr_ptr;
 	struct sde_csc_cfg *csc_ptr;
 	struct sde_rect src_img_rec;
+	struct sde_rect src_rect_extn;
+	struct sde_rect dst_rect_extn;
 };
 
 /**

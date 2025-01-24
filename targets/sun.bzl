@@ -5,14 +5,7 @@ load("//msm-kernel:target_variants.bzl", "get_all_la_variants")
 def define_sun():
     for (t, v) in get_all_la_variants():
         if t == "sun":
-            define_target_variant_modules(
-                target = t,
-                variant = v,
-                registry = display_driver_modules,
-                modules = [
-                    "msm_drm",
-                ],
-                config_options = [
+            config_options = [
                     "CONFIG_DRM_MSM_SDE",
                     "CONFIG_SYNC_FILE",
                     "CONFIG_DRM_MSM_DSI",
@@ -23,12 +16,26 @@ def define_sun():
                     "CONFIG_DRM_MSM_REGISTER_LOGGING",
                     "CONFIG_QCOM_MDSS_PLL",
                     "CONFIG_HDCP_QSEECOM",
-                    # "CONFIG_DRM_SDE_VM",
+                    "CONFIG_DRM_SDE_VM",
                     "CONFIG_QCOM_WCD939X_I2C",
                     "CONFIG_THERMAL_OF",
-                    # "CONFIG_MSM_MMRM",
+                    "CONFIG_MSM_MMRM",
                     "CONFIG_QTI_HW_FENCE",
                     "CONFIG_QCOM_SPEC_SYNC",
-                    "CONFIG_MSM_EXT_DISPLAY"
+                    "CONFIG_MSM_EXT_DISPLAY",
+                    "CONFIG_DRM_SDE_CESTA",
+                    "CONFIG_SMMU_PROXY",
+                    "MI_DISPLAY_MODIFY",
+                    "CONFIG_VIS_DISPLAY"
+            ]
+            if v == "consolidate":
+                config_options += [ "CONFIG_DISP_DEBUG" ]
+            define_target_variant_modules(
+                target = t,
+                variant = v,
+                registry = display_driver_modules,
+                modules = [
+                    "msm_drm",
                 ],
+                config_options = config_options,
             )

@@ -262,8 +262,13 @@ static void dsi_phy_hw_cphy_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *c
 	DSI_W32(phy, DSIPHY_CMN_GLBL_CTRL, BIT(6));
 
 	/* Enable LDO */
-	DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_0, 0x57);
-	DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_1, 0x41);
+	if (phy->index) {
+		DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_0, 0x44);
+		DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_1, 0x42);
+	} else {
+		DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_0, 0x57);
+		DSI_W32(phy, DSIPHY_CMN_VREG_CTRL_1, 0x41);
+	}
 	DSI_W32(phy, DSIPHY_CMN_GLBL_STR_SWI_CAL_SEL_CTRL, glbl_str_swi_cal_sel_ctrl);
 	DSI_W32(phy, DSIPHY_CMN_GLBL_HSTX_STR_CTRL_0, glbl_hstx_str_ctrl_0);
 	DSI_W32(phy, DSIPHY_CMN_GLBL_PEMPH_CTRL_0, 0x11);
@@ -334,10 +339,22 @@ static void dsi_phy_hw_dphy_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *c
 
 	glbl_rescode_top_ctrl = less_than_1500_mhz ? 0x3c : 0x03;
 	glbl_rescode_bot_ctrl = less_than_1500_mhz ? 0x38 : 0x3c;
+#ifdef MI_DISPLAY_MODIFY
+	if (cfg->clk_strength && less_than_1500_mhz) {
+		if(cfg->deemph_eq_strength) {
+			glbl_str_swi_cal_sel_ctrl = 0x07;
+		} else {
+			glbl_str_swi_cal_sel_ctrl = 0x01;
+		}
+		glbl_hstx_str_ctrl_0 = cfg->clk_strength;
+	} else {
+		glbl_str_swi_cal_sel_ctrl = 0x00;
+		glbl_hstx_str_ctrl_0 = 0x88;
+	}
+#else
 	glbl_str_swi_cal_sel_ctrl = 0x00;
 	glbl_hstx_str_ctrl_0 = 0x88;
-
-
+#endif
 	split_link_enabled = cfg->split_link.enabled;
 	lanes_per_sublink = cfg->split_link.lanes_per_sublink;
 	/* de-assert digital and pll power down */
@@ -921,3 +938,30 @@ void dsi_phy_hw_v7_2_phy_idle_off(struct dsi_phy_hw *phy,
 	/* Delay to ensure HW removes vote*/
 	udelay(2);
 }
+
+#ifdef MI_DISPLAY_MODIFY
+void dsi_phy_hw_v7_2_get_phy_timing(struct dsi_phy_hw *phy,
+		u32 *phy_timming, u32 size)
+{
+	if (!phy_timming || !phy || !size)
+		return;
+	if (size != DSI_PHY_TIMING_V4_SIZE) {
+		DSI_ERR("Unexpected timing array size %d\n", size);
+		return;
+	}
+	phy_timming[0] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_0);
+	phy_timming[1] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_1);
+	phy_timming[2] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_2);
+	phy_timming[3] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_3);
+	phy_timming[4] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_4);
+	phy_timming[5] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_5);
+	phy_timming[6] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_6);
+	phy_timming[7] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_7);
+	phy_timming[8] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_8);
+	phy_timming[9] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_9);
+	phy_timming[10] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_10);
+	phy_timming[11] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_11);
+	phy_timming[12] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_12);
+	phy_timming[13] = DSI_R32(phy, DSIPHY_CMN_TIMING_CTRL_13);
+}
+#endif

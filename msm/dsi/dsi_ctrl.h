@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -51,9 +51,13 @@
 #define DSI_CTRL_CMD_SUBLINK1 0x800
 
 /* DSI embedded mode fifo size
- * If the command is greater than 256 bytes it is sent in non-embedded mode.
+ * If the command is greater than the maximum size in bytes it is sent in non-embedded mode.
+ * Maximum size depends on the DSI controller version:
+ * - Up to but not including 2.9.0, maximum size is 256
+ * - 2.9.0 or newer, maximum size is 1024
  */
-#define DSI_EMBEDDED_MODE_DMA_MAX_SIZE_BYTES 256
+#define DSI_EMBEDDED_MODE_DMA_MAX_SIZE_BYTES_PRE_2P9 256
+#define DSI_EMBEDDED_MODE_DMA_MAX_SIZE_BYTES 1024
 
 /* max size supported for dsi cmd transfer using TPG */
 #define DSI_CTRL_MAX_CMD_FIFO_STORE_SIZE 64
@@ -125,6 +129,8 @@ struct dsi_ctrl_power_info {
  *			clocks. These clocks are specific to controller
  *			instance.
  * @xo_clk:             XO clocks used to park the DSI PLL before turning off.
+ * @esync_clk:          clocks required to drive the esync generator
+ * @osc_clk:            clocks required to drive the backup esync generator
  * @mux_clks:           Mux clocks used for Dynamic refresh feature.
  * @ext_clks:           External byte/pixel clocks from the MMSS block. These
  *			clocks are set as parent to rcg clocks.
@@ -138,6 +144,8 @@ struct dsi_ctrl_clk_info {
 	struct dsi_link_lp_clk_info lp_link_clks;
 	struct dsi_clk_link_set rcg_clks;
 	struct dsi_clk_link_set xo_clk;
+	struct dsi_esync_clk_info esync_clk;
+	struct dsi_osc_clk_info osc_clk;
 
 	/* Clocks set by DSI Manager */
 	struct dsi_clk_link_set mux_clks;
@@ -203,12 +211,14 @@ struct dsi_ctrl_interrupts {
  * @hw:                  DSI controller hardware object.
  * @current_state:       Current driver and hardware state.
  * @clk_cb:		 Callback for DSI clock control.
+ * @idle_pc:             Caching the power-collapse state of DPU.
  * @irq_info:            Interrupt information.
  * @recovery_cb:         Recovery call back to SDE.
  * @panel_id_cb:         Callback for reporting panel id.
  * @clk_info:            Clock information.
  * @clk_freq:            DSi Link clock frequency information.
  * @pwr_info:            Power information.
+ * cesta_client:         Cesta client pointer for the display
  * @host_config:         Current host configuration.
  * @mode_bounds:         Boundaries of the default mode ROI.
  *                       Origin is at top left of all CTRLs.
@@ -272,6 +282,7 @@ struct dsi_ctrl {
 	/* Current state */
 	struct dsi_ctrl_state_info current_state;
 	struct clk_ctrl_cb clk_cb;
+	bool idle_pc;
 
 	struct dsi_ctrl_interrupts irq_info;
 	struct dsi_event_cb_info recovery_cb;
@@ -281,6 +292,7 @@ struct dsi_ctrl {
 	struct dsi_ctrl_clk_info clk_info;
 	struct link_clk_freq clk_freq;
 	struct dsi_ctrl_power_info pwr_info;
+	struct sde_cesta_client *cesta_client;
 
 	struct dsi_host_config host_config;
 	struct dsi_rect mode_bounds;
@@ -619,6 +631,7 @@ int dsi_ctrl_transfer_prepare(struct dsi_ctrl *dsi_ctrl, u32 flags);
  * dsi_ctrl_cmd_transfer() - Transfer commands on DSI link
  * @dsi_ctrl:             DSI controller handle.
  * @cmd:                  Description of the cmd to be sent.
+ * @do_peripheral_flush:  Flag for sending this command with peripheral flush.
  *
  * Command transfer can be done only when command engine is enabled. The
  * transfer API will until either the command transfer finishes or the timeout
@@ -627,7 +640,8 @@ int dsi_ctrl_transfer_prepare(struct dsi_ctrl *dsi_ctrl, u32 flags);
  *
  * Return: error code.
  */
-int dsi_ctrl_cmd_transfer(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd);
+int dsi_ctrl_cmd_transfer(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd,
+			  bool do_peripheral_flush);
 
 /**
  * dsi_ctrl_transfer_unprepare() - Clean up post a command transfer
@@ -952,4 +966,14 @@ void dsi_ctrl_toggle_error_interrupt_status(struct dsi_ctrl *dsi_ctrl, bool enab
  * @dsi_ctrl:                 DSI controller handle.
  */
 void dsi_ctrl_transfer_cleanup(struct dsi_ctrl *dsi_ctrl);
+
+/**
+ * dsi_ctrl_set_lp2_load() - Add or remove LP2 load on DSI ctrl supplies.
+ * @ctrl:			DSI controller handle.
+ * @enable:			Boolean to control whether to add or remove
+ * the LP2 load.
+ *
+ * Return: error code.
+ */
+int dsi_ctrl_set_lp2_load(struct dsi_ctrl *dsi_ctrl, bool enable);
 #endif /* _DSI_CTRL_H_ */

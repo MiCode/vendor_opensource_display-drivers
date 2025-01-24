@@ -37,6 +37,7 @@
 #include <linux/msm_ion.h>
 #endif
 
+
 struct msm_gem_prime_vmid_flags {
 	bool is_tvm;
 	bool is_cp_pixel;
@@ -214,6 +215,16 @@ struct drm_gem_object *msm_gem_prime_import(struct drm_device *dev,
 	 */
 	if (vmid_flags.is_cp_pixel) {
 		attach_dev = kms->funcs->get_address_space_device(kms, MSM_SMMU_DOMAIN_SECURE);
+
+		/*
+		 * While transitioning from secure usecase, its possible the sec-cb might not
+		 * be attached yet. Attach the dma-buf with non-sec cb as during the commit phase
+		 * as part of the msm_gem_get_iova, delayed mapping will take care of reattaching
+		 * with the correct context-bank.
+		 */
+		if (!attach_dev)
+			attach_dev = kms->funcs->get_address_space_device(kms,
+					MSM_SMMU_DOMAIN_UNSECURE);
 	} else if (!iommu_present(&platform_bus_type) || vmid_flags.is_tvm
 		   || vmid_flags.is_cam_preview || vmid_flags.is_sec_display) {
 		attach_dev = dev->dev;

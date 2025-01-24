@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -1088,7 +1088,7 @@ static int shd_drm_obj_init(struct shd_display *display)
 		goto end;
 	}
 
-	encoder = sde_encoder_init_with_ops(dev, &info, &enc_ops);
+	encoder = sde_encoder_init_with_ops(dev, &info, &enc_ops, NULL);
 	if (IS_ERR_OR_NULL(encoder)) {
 		SDE_ERROR("shd encoder init failed\n");
 		rc = -ENOENT;

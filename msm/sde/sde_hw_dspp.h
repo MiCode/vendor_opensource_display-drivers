@@ -313,10 +313,9 @@ struct sde_hw_dspp_ops {
 	/**
 	 * setup_demura_backlight_cfg - function to program demura backlight
 	 * @ctx: Pointer to dspp context
-	 * @val: value of backlight
 	 * @hw_cfg: Pointer to configuration
 	 */
-	void (*setup_demura_backlight_cfg)(struct sde_hw_dspp *ctx, u64 val,
+	void (*setup_demura_backlight_cfg)(struct sde_hw_dspp *ctx,
 					   struct sde_hw_cp_cfg *hw_cfg);
 
 	/**
@@ -419,6 +418,14 @@ struct sde_hw_dspp_ops {
 	 * @status: Pointer to configuration.
 	 */
 	int (*setup_ai_scaler)(struct sde_hw_dspp *ctx, void *cfg);
+
+	/**
+	 * setup_aiqe_abc - function to configure aiqe abc params
+	 * @ctx: Pointer to dspp context
+	 * @cfg: Pointer to configuration
+	 * @aiqe_top: Pointer to aiqe top level structure
+	 */
+	void (*setup_aiqe_abc)(struct sde_hw_dspp *ctx, void *cfg, void *aiqe_top);
 };
 
 /**
@@ -444,6 +451,7 @@ struct sde_hw_rc_state {
  * @spr_cfg_18_default: Default SPR cfg 18 HW details. Needed for PU handling
  * @rc_state: Structure for RC state
  * @dpu_idx: dpu index
+ * @sde_kms: pointer to sde_kms
  */
 struct sde_hw_dspp {
 	struct sde_hw_blk_reg_map hw;
@@ -464,6 +472,7 @@ struct sde_hw_dspp {
 	/* rc state */
 	struct sde_hw_rc_state rc_state;
 	u32 dpu_idx;
+	struct sde_kms *sde_kms;
 };
 
 /**
@@ -482,13 +491,13 @@ static inline struct sde_hw_dspp *to_sde_hw_dspp(struct sde_hw_blk_reg_map *hw)
  * @idx:  DSPP index for which driver object is required
  * @addr: Mapped register io address of MDP
  * @m :   pointer to mdss catalog data
- * @dpu_idx: dpu index
+ * @sde_kms: pointer to sde_kms
  * @Return: pointer to structure or ERR_PTR
  */
 struct sde_hw_blk_reg_map *sde_hw_dspp_init(enum sde_dspp idx,
 			void __iomem *addr,
 			struct sde_mdss_cfg *m,
-			u32 dpu_idx);
+			struct sde_kms *sde_kms);
 
 /**
  * sde_hw_dspp_destroy(): Destroys DSPP driver context

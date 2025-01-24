@@ -663,6 +663,7 @@ struct drm_msm_spr_udc_cfg {
 #define DEMURA_PRECISION_0 (0 << 2)
 #define DEMURA_PRECISION_1 (1 << 2)
 #define DEMURA_PRECISION_2 (2 << 2)
+#define DEMURA_FLAG_3
 
 struct drm_msm_dem_cfg {
 	__u64 flags;
@@ -711,6 +712,18 @@ struct drm_msm_dem_cfg {
 	__u32 c2_depth;
 	__u32 src_id;
 	__u32 cfg0_param2_idx;
+
+	__u32 cfg0_param5_len;
+	__u32 cfg0_param5[CFG0_PARAM_LEN];
+	__u32 cfg0_param6_len;
+	__u32 cfg0_param6[CFG0_PARAM_LEN];
+
+	__u32 cfg0_param4_1_len;
+	__u32 cfg0_param4_1[CFG0_PARAM_LEN];
+	__u32 cfg0_param5_1_len;
+	__u32 cfg0_param5_1[CFG0_PARAM_LEN];
+	__u32 cfg0_param6_1_len;
+	__u32 cfg0_param6_1[CFG0_PARAM_LEN];
 };
 
 struct drm_msm_dem_cfg0_param2 {

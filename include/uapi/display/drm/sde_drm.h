@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -866,6 +866,20 @@ struct drm_msm_display_hint {
 	__u32 hint_flags;
 };
 
+/**
+ * struct drm_msm_display_early_ept: Payload for display early ept hint
+ * @ept:  Expected present time value in nano seconds.
+ * @frame_interval: Frame interval in nano seconds of vrr.
+ * @connector_id: connector id.
+ * @flags:  operation control flags, for future use
+ */
+struct drm_msm_display_early_ept {
+	__u64 ept_ns;
+	__u64 frame_interval;
+	__u32 connector_id;
+	__u32 flags;
+};
+
 #define DRM_NOISE_LAYER_CFG
 #define DRM_NOISE_TEMPORAL_FLAG (1 << 0)
 #define DRM_NOISE_ATTN_MAX 255
@@ -876,9 +890,11 @@ struct drm_msm_display_hint {
  * @flags: operation control flags, for future use
  * @zposn: noise zorder
  * @zposattn: attenuation zorder
- * @attn_factor: attenuation factor in range of 1 to 255
+ * @attn_factor: attenuation factor in range of 1 to 255 for 8 bit and
+ *               1 to 65535 for 10 bit alpha
  * @stength: strength in range of 0 to 6
- * @alpha_noise: attenuation in range of 1 to 255
+ * @alpha_noise: attenuation in range of 1 to 255 for 8 bit and
+ *               1 to 65535 for 10 bit alpha
 */
 struct drm_msm_noise_layer_cfg {
 	__u64 flags;
@@ -984,6 +1000,7 @@ struct sde_drm_dnsc_blur_cfg {
 #define DRM_MSM_RMFB2                  0x43
 #define DRM_MSM_POWER_CTRL             0x44
 #define DRM_MSM_DISPLAY_HINT           0x45
+#define DRM_MSM_EARLY_EPT              0x46
 
 /* sde custom events */
 #define DRM_EVENT_HISTOGRAM 0x80000000
@@ -1041,6 +1058,8 @@ struct sde_drm_dnsc_blur_cfg {
 			DRM_MSM_POWER_CTRL), struct drm_msm_power_ctrl)
 #define DRM_IOCTL_MSM_DISPLAY_HINT DRM_IOW((DRM_COMMAND_BASE + \
 			DRM_MSM_DISPLAY_HINT), struct drm_msm_display_hint)
+#define DRM_IOCTL_MSM_EARLY_EPT DRM_IOW((DRM_COMMAND_BASE + \
+			DRM_MSM_EARLY_EPT), struct drm_msm_display_early_ept)
 
 #if defined(__cplusplus)
 }

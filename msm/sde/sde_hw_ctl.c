@@ -74,6 +74,9 @@
 #define CTL_OUTPUT_FENCE_DIR_MASK       0x288
 #define CTL_OUTPUT_FENCE_DIR_ATTR       0x28C
 
+#define CTL_CESTA_FLUSH                 0x300
+#define CTL_CESTA_FLUSH_COMPLETE	0x340
+
 #define CTL_MIXER_BORDER_OUT            BIT(24)
 #define CTL_FLUSH_MASK_ROT              BIT(27)
 #define CTL_FLUSH_MASK_CTL              BIT(17)
@@ -98,7 +101,7 @@
 /**
  * List of SSPP bits in CTL_FLUSH
  */
-static const u32 sspp_tbl[SSPP_MAX] = { SDE_NONE, 0, 1, 2, 18, 11, 12, 24, 25, 13, 14};
+static const u32 sspp_tbl[SSPP_MAX] = { SDE_NONE, 0, 1, 2, 18, 3, 4, 5, 19, 11, 12, 24, 25, 13, 14};
 
 /**
  * List of layer mixer bits in CTL_FLUSH
@@ -145,12 +148,14 @@ static const u32 intf_tbl[INTF_MAX] = {SDE_NONE, 31, 30, 29, 28};
 /**
  * List of SSPP bits in CTL_FETCH_PIPE_ACTIVE
  */
-static const u32 fetch_active_tbl[SSPP_MAX] = {CTL_INVALID_BIT, 16, 17, 18, 19, 0, 1, 2, 3, 4, 5};
+static const u32 fetch_active_tbl[SSPP_MAX] = {CTL_INVALID_BIT,
+		16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5};
 
 /**
  * List of SSPP bits in CTL_PIPE_ACTIVE
  */
-static const u32 pipe_active_tbl[SSPP_MAX] = {CTL_INVALID_BIT, 16, 17, 18, 19, 0, 1, 2, 3, 4, 5};
+static const u32 pipe_active_tbl[SSPP_MAX] = {CTL_INVALID_BIT,
+		16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5};
 
 /**
  * List of LM bits in CTL_LM_ACTIVE
@@ -170,7 +175,7 @@ static const u32 intf_flush_tbl[INTF_MAX] = {SDE_NONE, 0, 1, 2, 3, 4, 5, 6, 7, 8
 /**
  * list of DSC bits in CTL_DSC_FLUSH
  */
-static const u32 dsc_flush_tbl[DSC_MAX] = {SDE_NONE, 0, 1, 2, 3, 4, 5};
+static const u32 dsc_flush_tbl[DSC_MAX] = {SDE_NONE, 0, 1, 2, 3, 4, 5, 6, 7};
 
 /**
  * list of VDC bits in CTL_DSC_FLUSH
@@ -216,6 +221,7 @@ static const u32 dspp_sub_blk_flush_tbl[SDE_DSPP_MAX] = {
 	[SDE_DSPP_SPR] = 8,
 	[SDE_DSPP_DEMURA] = 9,
 	[SDE_DSPP_RC] = 10,
+	[SDE_DSPP_AIQE_WRAPPER] = 11,
 	[SDE_DSPP_AIQE] = 12,
 	[SDE_DSPP_AI_SCALER] = 13,
 	[SDE_DSPP_SB] = 31,
@@ -262,6 +268,8 @@ sspp_reg_cfg_tbl[SSPP_MAX][CTL_SSPP_MAX_RECTS] = {
 #define DSPP_IDX       29
 #define PERIPH_IDX     30
 #define INTF_IDX       31
+
+#define CESTA_OVERRIDE_FLUSH_MAX_WAIT_CNT	20
 
 /* struct ctl_hw_flush_cfg: Defines the active ctl hw flush config,
  *     See enum ctl_hw_flush_type for types
@@ -396,16 +404,25 @@ static inline void sde_hw_ctl_output_fence_dir_wr_data(struct sde_hw_ctl *ctx, u
 }
 
 static inline void sde_hw_ctl_hw_fence_ctrl(struct sde_hw_ctl *ctx, bool sw_override_set,
-	bool  sw_override_clear, u32 mode)
+	bool  sw_override_clear, u32 mode, bool sw_avr_set, bool sw_arp_set)
 {
 	u32 val;
 
 	val = SDE_REG_READ(&ctx->hw, CTL_HW_FENCE_CTRL);
 	val |= (sw_override_set ? BIT(5) : 0) | (sw_override_clear ? BIT(4) : 0);
-	if (!mode)
+	if (!mode) {
 		val &= ~BIT(0);
-	else
+		if (!sw_avr_set)
+			val &= ~BIT(8);
+		if (!sw_arp_set)
+			val &= ~BIT(9);
+	} else {
 		val |= BIT(0);
+		if (sw_avr_set)
+			val |= BIT(8);
+		if (sw_arp_set)
+			val |= BIT(9);
+	}
 
 	SDE_REG_WRITE(&ctx->hw, CTL_HW_FENCE_CTRL, val);
 }
@@ -732,6 +749,25 @@ static inline int sde_hw_ctl_update_bitmask_v1(struct sde_hw_ctl *ctx,
 	return 0;
 }
 
+static inline bool sde_hw_ctl_bitmask_has_bit_v1(struct sde_hw_ctl *ctx,
+		enum ctl_hw_flush_type type, u32 blk_idx)
+{
+	const struct ctl_hw_flush_cfg *cfg;
+
+	if (!ctx || !(type < SDE_HW_FLUSH_MAX))
+		return false;
+
+	cfg = &ctl_hw_flush_cfg_tbl_v1[type];
+
+	if ((blk_idx <= SDE_NONE) || (blk_idx >= cfg->blk_max)) {
+		SDE_ERROR("Unsupported hw idx, type:%d, blk_idx:%d, blk_max:%d",
+				type, blk_idx, cfg->blk_max);
+		return false;
+	}
+
+	return ctx->flush.pending_flush_mask & cfg->flush_idx;
+}
+
 static inline void sde_hw_ctl_update_dnsc_blur_bitmask(struct sde_hw_ctl *ctx,
 		u32 blk_idx, bool enable)
 {
@@ -823,6 +859,34 @@ static u32 sde_hw_ctl_get_active_fetch_pipes(struct sde_hw_ctl *ctx)
 	return fetch_active;
 }
 
+static int sde_hw_ctl_set_intf_master(struct sde_hw_ctl *ctx, u32 intf_master)
+{
+	struct sde_hw_blk_reg_map *c;
+
+	if (!ctx)
+		return -EINVAL;
+
+	c = &ctx->hw;
+
+	intf_master = BIT(intf_master - INTF_0);
+
+	SDE_REG_WRITE(c, CTL_INTF_MASTER, intf_master);
+
+	return 0;
+}
+
+static int sde_hw_ctl_get_intf_master(struct sde_hw_ctl *ctx)
+{
+	struct sde_hw_blk_reg_map *c;
+
+	if (!ctx)
+		return -EINVAL;
+
+	c = &ctx->hw;
+
+	return SDE_REG_READ(c, CTL_INTF_MASTER);
+}
+
 static void sde_hw_ctl_set_active_pipes(struct sde_hw_ctl *ctx, unsigned long *active_pipes)
 {
 	int i;
@@ -880,7 +944,8 @@ end:
 static u32 sde_hw_ctl_get_active_lms(struct sde_hw_ctl *ctx)
 {
 	int i;
-	u32 lm_info, lm_active = 0;
+	u32 lm_active = 0;
+	unsigned long lm_info;
 
 	if (!ctx)  {
 		DRM_ERROR("invalid args - ctx invalid\n");
@@ -890,8 +955,9 @@ static u32 sde_hw_ctl_get_active_lms(struct sde_hw_ctl *ctx)
 	lm_info = SDE_REG_READ(&ctx->hw, CTL_LAYER_ACTIVE);
 
 	for (i = LM_0; i < LM_MAX; i++) {
-		if (lm_active_tbl[i] != CTL_INVALID_BIT && lm_info & BIT(lm_active_tbl[i]))
-			lm_active |= BIT(i);
+		if (lm_active_tbl[i] != CTL_INVALID_BIT &&
+				test_bit((i - LM_0), &lm_info))
+			lm_active |= BIT(lm_active_tbl[i]);
 	}
 
 	return lm_active;
@@ -956,6 +1022,24 @@ static inline u32 sde_hw_ctl_get_intf_v1(struct sde_hw_ctl *ctx)
 	intf_active = SDE_REG_READ(c, CTL_INTF_ACTIVE);
 
 	return intf_active;
+}
+
+static inline void sde_hw_ctl_update_top_group(struct sde_hw_ctl *ctx, bool enable)
+{
+	struct sde_hw_blk_reg_map *c;
+	u32 val;
+
+	if (!ctx)
+		return;
+
+	c = &ctx->hw;
+	val = SDE_REG_READ(c, CTL_TOP);
+	if (enable)
+		val = val & 0xFFFFFFF;
+	else
+		val = val | 0xF0000000;
+
+	SDE_REG_WRITE(c, CTL_TOP, val);
 }
 
 static inline u32 sde_hw_ctl_get_intf(struct sde_hw_ctl *ctx)
@@ -1549,6 +1633,49 @@ static int sde_hw_reg_dma_flush(struct sde_hw_ctl *ctx, bool blocking)
 
 }
 
+static void sde_hw_ctl_cesta_flush(struct sde_hw_ctl *ctx, struct sde_ctl_cesta_cfg *cfg)
+{
+	struct sde_hw_blk_reg_map *c;
+	u32 val = 0, wait_count = 0;
+
+	if (!ctx || !cfg)
+		return;
+
+	c = &ctx->hw;
+
+	val |= ((cfg->flags & SDE_CTL_CESTA_SCC_WAIT) ? BIT(31) : 0);
+	val |= ((cfg->flags & SDE_CTL_CESTA_CHN_WAIT) ? BIT(30) : 0);
+	val |= ((cfg->flags & SDE_CTL_CESTA_SCC_FLUSH) ? (BIT(16) | BIT(31)) : 0);
+
+	if (cfg->flags & SDE_CTL_CESTA_OVERRIDE_FLAG)
+		val |= (0x3 << 1);
+	else if (cfg->vote_state == SDE_CESTA_BW_CLK_DOWNVOTE)
+		val |= (0x2 << 1);
+	else if ((cfg->vote_state == SDE_CESTA_BW_UPVOTE_CLK_DOWNVOTE)
+			|| (cfg->vote_state == SDE_CESTA_CLK_UPVOTE_BW_DOWNVOTE)
+			|| (cfg->vote_state == SDE_CESTA_BW_CLK_UPVOTE))
+		val |= (0x1 << 1);
+
+	val |= BIT(0);
+
+	SDE_REG_WRITE(c, CTL_CESTA_FLUSH + (cfg->index * 0x4), val);
+	SDE_EVT32(cfg->index, val);
+
+	if (cfg->flags & SDE_CTL_CESTA_OVERRIDE_FLAG) {
+
+		val = SDE_REG_READ(c, CTL_CESTA_FLUSH_COMPLETE) & BIT(cfg->index);
+		while (val && wait_count < CESTA_OVERRIDE_FLUSH_MAX_WAIT_CNT) {
+			usleep_range(50, 60);
+			wait_count++;
+			val = SDE_REG_READ(c, CTL_CESTA_FLUSH_COMPLETE) & BIT(cfg->index);
+		}
+
+		if (val)
+			pr_err("cesta override flush complete timeout, index:%d, val:0x%x\n",
+					cfg->index, val);
+	}
+}
+
 static void _setup_ctl_ops(struct sde_hw_ctl_ops *ops,
 		unsigned long cap)
 {
@@ -1561,14 +1688,18 @@ static void _setup_ctl_ops(struct sde_hw_ctl_ops *ops,
 		ops->update_intf_cfg = sde_hw_ctl_update_intf_cfg;
 
 		ops->update_bitmask = sde_hw_ctl_update_bitmask_v1;
+		ops->bitmask_has_bit = sde_hw_ctl_bitmask_has_bit_v1;
 		ops->update_dnsc_blur_bitmask = sde_hw_ctl_update_dnsc_blur_bitmask;
 		ops->get_ctl_intf = sde_hw_ctl_get_intf_v1;
+		ops->update_ctl_top_group = sde_hw_ctl_update_top_group;
 
 		ops->reset_post_disable = sde_hw_ctl_reset_post_disable;
 		ops->get_scheduler_status = sde_hw_ctl_get_scheduler_status;
 		ops->read_active_status = sde_hw_ctl_read_active_status;
 		ops->set_active_fetch_pipes = sde_hw_ctl_set_active_fetch_pipes;
 		ops->get_active_fetch_pipes = sde_hw_ctl_get_active_fetch_pipes;
+		ops->set_intf_master = sde_hw_ctl_set_intf_master;
+		ops->get_intf_master = sde_hw_ctl_get_intf_master;
 	} else {
 		ops->update_pending_flush = sde_hw_ctl_update_pending_flush;
 		ops->trigger_flush = sde_hw_ctl_trigger_flush;
@@ -1604,6 +1735,9 @@ static void _setup_ctl_ops(struct sde_hw_ctl_ops *ops,
 	ops->update_bitmask_mixer = sde_hw_ctl_update_bitmask_mixer;
 	ops->reg_dma_flush = sde_hw_reg_dma_flush;
 	ops->get_start_state = sde_hw_ctl_get_start_state;
+
+	if (cap & BIT(SDE_CTL_CESTA_FLUSH))
+		ops->cesta_flush = sde_hw_ctl_cesta_flush;
 
 	if (cap & BIT(SDE_CTL_UNIFIED_DSPP_FLUSH)) {
 		ops->update_bitmask_dspp_subblk =

@@ -35,6 +35,8 @@
 
 #define SDE_CRTC_NAME_SIZE	12
 
+#define DRM_NOISE_ATTN_MAX_10_BIT_ALPHA 65535
+
 /* define the maximum number of in-flight frame events */
 /* Expand it to 2x for handling atleast 2 connectors safely */
 #define SDE_CRTC_EVENT_SIZE	(4 * 2)
@@ -364,10 +366,6 @@ enum sde_crtc_hw_fence_flags {
  * @cache_type      : Current static image cache type to use
  * @dspp_blob_info  : blob containing dspp hw capability information
  * @cached_encoder_mask : cached encoder_mask for vblank work
- * @valid_skip_blend_plane: flag to indicate if skip blend plane is valid
- * @skip_blend_plane: enabled plane that has skip blending
- * @skip_blend_plane_w: skip blend plane width
- * @skip_blend_plane_h: skip blend plane height
  * @line_time_in_ns : current mode line time in nano sec is needed for QOS update
  * @frame_data      : Framedata data structure
  * @previous_opr_value : store previous opr values
@@ -378,13 +376,14 @@ enum sde_crtc_hw_fence_flags {
  *                   used to slow-down creation of output hw-fences for debugging purposes.
  * @input_fence_status : input fence status, negative if the fence has been completed with error.
  * @hanle_fence_error_bw_update: bool to indicate if it is fence error and need to avoid bw vote.
- * @back_light: backlight value
- * @back_light_max: max backlight value
- * @back_light_pending: flag to indicate if backlight update is pending
  * @framedone_event_notify_enabled: flag to indicate if framedone notify is enabled or not
  * @mdnie_art_event_notify_enabled: flag to indicate if art done notify is enabled or not
  * @copr_status_event_notify_enabled: flag to indicate if copr status notify is enabled or not
  * @aiqe_top_level: aiqe top level mutex and mask
+ * @ai_scaler_res: struct stores ai scaler enable flag and resolution
+ * @skip_blend_planes: array holding skip blend plane list
+ * @sde_cesta_client: Pointer to sde_cesta client for the encoder.
+ * @mdnie_art_frame_count: number of frames required for mdnie art to converge.
  */
 struct sde_crtc {
 	struct drm_crtc base;
@@ -486,10 +485,6 @@ struct sde_crtc {
 	struct drm_property_blob *dspp_blob_info;
 	u32 cached_encoder_mask;
 
-	bool valid_skip_blend_plane;
-	enum sde_sspp skip_blend_plane;
-	u32 skip_blend_plane_w;
-	u32 skip_blend_plane_h;
 	u32 line_time_in_ns;
 
 	struct sde_frame_data frame_data;
@@ -502,15 +497,19 @@ struct sde_crtc {
 	int input_fence_status;
 	bool handle_fence_error_bw_update;
 
-	u32 back_light;
-	u32 back_light_max;
-	u32 back_light_pending;
-
 	bool framedone_event_notify_enabled;
 	bool mdnie_art_event_notify_enabled;
 	bool copr_status_event_notify_enabled;
 
 	struct sde_aiqe_top_level aiqe_top_level;
+	struct sde_io_res ai_scaler_res;
+	struct sde_cp_skip_blend_plane skip_blend_planes[SB_PLANE_MAX];
+
+	struct sde_cesta_client *cesta_client;
+	u32 mdnie_art_frame_count;
+#ifdef MI_DISPLAY_MODIFY
+	struct mutex crtc_cesta_client_lock;
+#endif
 };
 
 enum sde_crtc_dirty_flags {
@@ -1032,13 +1031,27 @@ static inline void sde_crtc_get_ds_io_res(struct drm_crtc_state *state, struct s
 }
 
 /**
+ * sde_crtc_no_frame_in_progress - Return false in frame pending/in progress
+ * @crtc: pointer to drm crtc
+ */
+static inline bool sde_crtc_no_frame_in_progress(struct drm_crtc *crtc)
+{
+	struct sde_crtc *sde_crtc = NULL;
+
+	sde_crtc = to_sde_crtc(crtc);
+	if (sde_crtc && !sde_crtc_frame_pending(crtc) && !sde_crtc->kickoff_in_progress)
+		return true;
+
+	return false;
+}
+
+/**
  * sde_crtc_get_ai_scaler_io_res - populates the AI scaler src/dst w/h
  * @state: pointer to drm crtc state
- * @res: pointer to the output struct to populate the src/dst
  */
-static inline void sde_crtc_get_ai_scaler_io_res(struct drm_crtc_state *state,
-					    struct sde_io_res *res) {
-	sde_cp_get_ai_scaler_io_res(state, res);
+static inline void sde_crtc_get_ai_scaler_io_res(struct drm_crtc_state *state)
+{
+	sde_cp_get_ai_scaler_io_res(state);
 }
 
 /**
@@ -1220,11 +1233,9 @@ int sde_crtc_calc_vpadding_param(struct drm_crtc_state *state, u32 crtc_y, u32 c
 				 u32 *padding_y, u32 *padding_start, u32 *padding_height);
 
 /**
- * sde_crtc_backlight_notify - notify backlight
+ * sde_crtc_mdnie_art_event_notify - notify art done to userspace
  * @crtc: Pointer to drm_crtc.
- * @bl_val: Backlight value.
- * @bl_max: Max backlight value.
  */
-void sde_crtc_backlight_notify(struct drm_crtc *crtc, u32 bl_val, u32 bl_max);
+void sde_crtc_mdnie_art_event_notify(struct drm_crtc *crtc);
 
 #endif /* _SDE_CRTC_H_ */

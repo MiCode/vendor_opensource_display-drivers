@@ -3,4 +3,4 @@
 header-y += msm_drm_pp.h
 header-y += sde_drm.h
 header-y += msm_drm_aiqe.h
-
+header-y += mi_disp.h

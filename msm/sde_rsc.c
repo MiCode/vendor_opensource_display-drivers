@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -116,7 +116,7 @@ struct sde_rsc_client *sde_rsc_client_create(u32 rsc_index, char *client_name,
 		return ERR_PTR(-ENOMEM);
 
 	mutex_lock(&rsc->client_lock);
-	strlcpy(client->name, client_name, MAX_RSC_CLIENT_NAME_LEN);
+	strscpy(client->name, client_name, MAX_RSC_CLIENT_NAME_LEN);
 	client->current_state = SDE_RSC_IDLE_STATE;
 	client->rsc_index = rsc_index;
 	client->id = id;
@@ -1797,11 +1797,7 @@ static int sde_rsc_probe(struct platform_device *pdev)
 		goto sde_rsc_fail;
 	}
 
-	rsc->fs = devm_regulator_get(&pdev->dev, "vdd");
-	if (IS_ERR_OR_NULL(rsc->fs)) {
-		rsc->fs = NULL;
-		pr_debug("unable to get regulator\n");
-
+	if (pdev->dev.pm_domain) {
 		/*
 		 * Use GenPD when the regulator is not available, latest kernel switched to
 		 * use the power-domain to control the GDSC.
@@ -1813,6 +1809,14 @@ static int sde_rsc_probe(struct platform_device *pdev)
 		 */
 		pm_runtime_enable(&pdev->dev);
 		rsc->pd_fs = &pdev->dev;
+		rsc->fs = NULL;
+	} else {
+		rsc->fs = devm_regulator_get(&pdev->dev, "vdd");
+		if (IS_ERR_OR_NULL(rsc->fs)) {
+			rsc->fs = NULL;
+			pr_err("unable to get regulator\n");
+		}
+		rsc->pd_fs = NULL;
 	}
 
 	if (rsc->version >= SDE_RSC_REV_3)

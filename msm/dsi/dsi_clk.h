@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _DSI_CLK_H_
@@ -44,8 +44,9 @@ enum dsi_link_clk_op_type {
 enum dsi_clk_type {
 	DSI_CORE_CLK = BIT(0),
 	DSI_LINK_CLK = BIT(1),
-	DSI_ALL_CLKS = (BIT(0) | BIT(1)),
-	DSI_CLKS_MAX = BIT(2),
+	DSI_ESYNC_CLK = BIT(2),
+	DSI_OSC_CLK = BIT(3),
+	DSI_CLKS_MAX = BIT(4),
 };
 
 enum dsi_lclk_type {
@@ -115,6 +116,22 @@ struct link_clk_freq {
 	u32 byte_intf_clk_rate;
 	u32 pix_clk_rate;
 	u32 esc_clk_rate;
+};
+
+/**
+ * struct dsi_esync_clk_info - Clock information for esync clock
+ * @clk:             Handle to esync clock.
+ */
+struct dsi_esync_clk_info {
+	struct clk *clk;
+};
+
+/**
+ * struct dsi_osc_clk_info - Clock information for oscillator clock
+ * @clk:             Handle to oscillator clock.
+ */
+struct dsi_osc_clk_info {
+	struct clk *clk;
 };
 
 /**
@@ -199,6 +216,8 @@ typedef int (*pll_toggle_cb)(void *priv, bool prepare);
  * @c_clks[MAX_DSI_CTRL]     array of core clock configurations
  * @l_lp_clks[MAX_DSI_CTRL]  array of low power(esc) clock configurations
  * @l_hs_clks[MAX_DSI_CTRL]  array of high speed clock configurations
+ * @e_clks[MAX_DSI_CTRL]     array of esync clock configurations
+ * @o_clk                    oscillator clock configuration
  * @ctrl_index[MAX_DSI_CTRL] array of DSI controller indexes mapped
  *                           to core and link clock configurations
  * @pre_clkoff_cb            callback before clock is turned off
@@ -217,6 +236,8 @@ struct dsi_clk_info {
 	struct dsi_core_clk_info c_clks[MAX_DSI_CTRL];
 	struct dsi_link_lp_clk_info l_lp_clks[MAX_DSI_CTRL];
 	struct dsi_link_hs_clk_info l_hs_clks[MAX_DSI_CTRL];
+	struct dsi_esync_clk_info e_clks[MAX_DSI_CTRL];
+	struct dsi_osc_clk_info o_clk;
 	u32 ctrl_index[MAX_DSI_CTRL];
 	pre_clockoff_cb pre_clkoff_cb;
 	post_clockoff_cb post_clkoff_cb;
@@ -302,6 +323,18 @@ int dsi_display_clk_ctrl(void *handle, u32 clk_type, u32 clk_state);
  * return: error code in case of failure or 0 for success.
  */
 int dsi_display_clk_ctrl_nolock(void *handle, u32 clk_type, u32 clk_state);
+
+/**
+ * dsi_display_clk_mngr_get_clk_rate() - retrieve clock rate
+ * @handle:     Handle of desired DSI clock client.
+ * @idx:        Index of desired DSI controller.
+ * @clk_type:   Clock whose rate is being retrieved.
+ * @clk_rate:   Pointer to which the rate will be written on success
+ *
+ * return: error code in case of failure or 0 for success.
+ */
+int dsi_display_clk_mngr_get_clk_rate(void *handle, u32 idx,
+		enum dsi_clk_type clk_type, u64 *clk_rate);
 
 /**
  * dsi_clk_set_link_frequencies() - set frequencies for link clks

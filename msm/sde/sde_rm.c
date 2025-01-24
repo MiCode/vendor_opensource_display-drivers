@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -666,7 +666,7 @@ static int _sde_rm_hw_blk_create(
 		hw = sde_hw_lm_init(id, mmio, cat);
 		break;
 	case SDE_HW_BLK_DSPP:
-		hw = sde_hw_dspp_init(id, mmio, cat, sde_kms->dev->primary->index);
+		hw = sde_hw_dspp_init(id, mmio, cat, sde_kms);
 		break;
 	case SDE_HW_BLK_DS:
 		hw = sde_hw_ds_init(id, mmio, cat);
@@ -740,7 +740,8 @@ static int _sde_rm_hw_blk_create(
 	return 0;
 }
 
-static int _init_hw_fences(struct sde_rm *rm, bool use_ipcc, struct sde_kms *sde_kms)
+static int _init_hw_fences(struct sde_rm *rm, bool use_ipcc, bool use_soccp,
+		struct sde_kms *sde_kms)
 {
 	struct sde_rm_hw_iter iter;
 	int ret = 0;
@@ -751,7 +752,7 @@ static int _init_hw_fences(struct sde_rm *rm, bool use_ipcc, struct sde_kms *sde
 
 		if (sde_kms->aspace[MSM_SMMU_DOMAIN_UNSECURE] &&
 				sde_kms->aspace[MSM_SMMU_DOMAIN_UNSECURE]->mmu) {
-			if (sde_hw_fence_init(ctl, sde_kms, use_ipcc,
+			if (sde_hw_fence_init(ctl, sde_kms, use_ipcc, use_soccp,
 					sde_kms->aspace[MSM_SMMU_DOMAIN_UNSECURE]->mmu)) {
 				SDE_DEBUG("failed to init hw_fence idx:%d\n", ctl->idx);
 				ret = -EINVAL;
@@ -859,7 +860,7 @@ static int _sde_rm_hw_blk_create_new(struct sde_rm *rm,
 
 	if (cat->hw_fence_rev) {
 		if (_init_hw_fences(rm, test_bit(SDE_FEATURE_HW_FENCE_IPCC, cat->features),
-				sde_kms)) {
+				cat->soccp_ph ? true : false, sde_kms)) {
 			SDE_INFO("failed to init hw-fences, disabling hw-fences\n");
 			cat->hw_fence_rev = 0;
 		}
@@ -2061,13 +2062,10 @@ static int _sde_rm_make_ctl_rsvp(struct sde_rm *rm, struct sde_rm_rsvp *rsvp,
  * Returns 0 if not found  or error
  */
 static int _sde_rm_find_prev_dsc(struct sde_rm *rm, struct sde_rm_rsvp *rsvp,
-		u8 *prev_dsc, u32 max_cnt)
+		u8 *prev_dsc)
 {
 	int i = 0;
 	struct sde_rm_hw_iter iter_dsc;
-
-	if ((!prev_dsc) || (max_cnt < MAX_DATA_PATH_PER_DSIPLAY))
-		return 0;
 
 	sde_rm_init_hw_iter(&iter_dsc, 0, SDE_HW_BLK_DSC);
 
@@ -2107,7 +2105,7 @@ static int _sde_rm_make_dsc_rsvp(struct sde_rm *rm, struct sde_rm_rsvp *rsvp,
 	 * dont have feasible way of decoupling previously owned dsc blocks by resetting
 	 * respective dsc encoders mux control and flush them from commit path
 	 */
-	if (!hw_ids && _sde_rm_find_prev_dsc(rm, rsvp, prev_dsc, MAX_DATA_PATH_PER_DSIPLAY))
+	if (!hw_ids && _sde_rm_find_prev_dsc(rm, rsvp, prev_dsc))
 		return  _sde_rm_reserve_dsc(rm, rsvp, reqs, prev_dsc);
 	else
 		return  _sde_rm_reserve_dsc(rm, rsvp, reqs, hw_ids);
@@ -2275,9 +2273,14 @@ static int _sde_rm_get_hw_blk_for_cont_splash(struct sde_rm *rm,
 			if (ctl->ops.get_staged_sspp)
 				pipes_per_lm = ctl->ops.get_staged_sspp(ctl, iter_lm.blk->id,
 					&splash_display->pipe_info);
+
 			if (mixer->ops.get_staged_sspp)
 				pipes_per_lm = mixer->ops.get_staged_sspp(mixer, iter_lm.blk->id,
 						&splash_display->pipe_info);
+
+			if (ctl->ops.get_active_lms)
+				pipes_per_lm =
+					BIT(iter_lm.blk->id - LM_0) & ctl->ops.get_active_lms(ctl);
 
 			if (pipes_per_lm || splash_display->pipe_info.bordercolor) {
 				splash_display->lm_ids[splash_display->lm_cnt++] = iter_lm.blk->id;

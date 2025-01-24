@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 #include <linux/iopoll.h>
@@ -199,10 +199,19 @@ static void sde_hw_set_axi_halt(struct sde_hw_vbif *vbif)
 static int sde_hw_get_axi_halt_status(struct sde_hw_vbif *vbif)
 {
 	struct sde_hw_blk_reg_map *c = &vbif->hw;
-	int ctrl = 0;
+	int ctrl = 0, ret = 0;
+	u32 val;
 
-	return read_poll_timeout(sde_reg_read, ctrl, (ctrl & BIT(0)),
-			100, false, 4000, c, VBIF_AXI_HALT_CTRL1);
+	ret = read_poll_timeout(sde_reg_read, ctrl, (ctrl & BIT(0)),
+			100, 4000, false, c, VBIF_AXI_HALT_CTRL1);
+
+	/* check AXI port 0 & 1 status on error */
+	if (ret) {
+		val = SDE_REG_READ(c, VBIF_AXI_HALT_CTRL1);
+		ret = (val & (BIT(4) | BIT(5))) ? 0 : ret;
+	}
+
+	return ret;
 }
 
 static void sde_hw_set_qos_remap(struct sde_hw_vbif *vbif,
